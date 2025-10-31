@@ -96,8 +96,7 @@ def add_sample_data():
             (user_id, phone, personal_code, student_name, group_id, balance, is_verified) 
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', user)
-    
-    print("Тестовые пользователи добавлены!")
+        print(f"✅ Добавлен пользователь: {user[3]} (код: {user[2]})")
     
     conn.commit()
     conn.close()
@@ -127,7 +126,7 @@ def check_database():
     users = cursor.fetchall()
     print(f"\nПользователи ({len(users)} шт.):")
     for user in users:
-        print(f"  UserID: {user[0]}, Телефон: {user[1]}, Код: {user[2]}, Имя: {user[3]}, Верифицирован: {user[6]}")
+        print(f"  UserID: {user[0]}, Телефон: {user[1]}, Код: '{user[2]}', Имя: {user[3]}, Верифицирован: {user[6]}")
     
     # Проверяем занятия
     cursor.execute("SELECT * FROM lessons")
@@ -149,3 +148,4 @@ if __name__ == '__main__':
     print("   123456 - Иван Петров (Математика)")
     print("   111111 - Мария Сидорова (Физика)") 
     print("   222222 - Алексей Иванов (Программирование)")
+    print("\n⚡ Для применения изменений перезапустите бота!")
