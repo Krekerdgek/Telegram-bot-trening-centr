@@ -230,23 +230,36 @@ async def verify_personal_code(update: Update, context: ContextTypes.DEFAULT_TYP
     conn = sqlite3.connect('school_bot.db')
     cursor = conn.cursor()
     
+    # Ищем пользователя по коду (игнорируя user_id)
     cursor.execute('SELECT * FROM users WHERE personal_code = ?', (code,))
     user = cursor.fetchone()
     
     if user:
+        # Обновляем user_id на реальный из Telegram
         cursor.execute('UPDATE users SET user_id = ?, is_verified = TRUE WHERE personal_code = ?', 
                      (user_id, code))
-        await update.message.reply_text("✅ *Авторизация успешна!*", parse_mode='Markdown')
+        conn.commit()
+        
+        # Получаем обновленные данные пользователя
+        cursor.execute('SELECT student_name FROM users WHERE user_id = ?', (user_id,))
+        user_data = cursor.fetchone()
+        
+        student_name = user_data[0] if user_data else "Пользователь"
+        
+        await update.message.reply_text(
+            f"✅ *Авторизация успешна!*\n\n"
+            f"👋 Добро пожаловать, {student_name}!",
+            parse_mode='Markdown'
+        )
         await show_main_menu(update, context)
     else:
         await update.message.reply_text(
             "❌ *Неверный код.*\n\n"
             "Попробуйте еще раз или используйте авторизацию по номеру телефона.\n"
-            "Если проблема сохраняется, обратитесь в учебный центр.",
+            "Доступные тестовые коды: 123456, 111111, 222222",
             parse_mode='Markdown'
         )
     
-    conn.commit()
     conn.close()
     context.user_data['waiting_for_code'] = False
 
