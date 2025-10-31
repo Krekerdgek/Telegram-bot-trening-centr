@@ -410,20 +410,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
     
+    print(f"📨 Получено сообщение: '{text}' от пользователя {user_id}")
+    
     # Если ожидаем ввод кода
     if context.user_data.get('waiting_for_code'):
+        print(f"🔍 Ожидаем код, получено: '{text}'")
         await verify_personal_code(update, context)
         return
     
     # Если не авторизован - показываем меню авторизации
     if not is_authenticated(user_id):
+        print(f"🔐 Пользователь {user_id} не авторизован")
         if text == "🔐 Ввод персонального кода":
+            print("📝 Запрос на ввод кода")
             await handle_personal_code_input(update, context)
+        elif text in ["📱 Авторизация по номеру телефона", "💳 Баланс и оплата", "📅 Ближайшие занятия", "👤 Личный кабинет", "💬 Чат школы"]:
+            print("🚫 Попытка доступа к функциям без авторизации")
+            await show_auth_menu(update, context)
         else:
+            print("🔄 Показ меню авторизации")
             await show_auth_menu(update, context)
         return
     
     # Обработка команд для авторизованных пользователей
+    print(f"🎯 Авторизованный пользователь выбрал: '{text}'")
     if text == "📅 Ближайшие занятия":
         await show_upcoming_lessons(update, context)
     elif text == "💳 Баланс и оплата":
@@ -447,12 +457,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Основная функция
 def main():
+    # Автоматическая инициализация базы данных при запуске
+    print("🔍 Проверяем базу данных...")
+    conn = sqlite3.connect('school_bot.db')
+    cursor = conn.cursor()
+    
+    try:
+        # Проверяем есть ли пользователи
+        cursor.execute("SELECT COUNT(*) FROM users")
+        user_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT personal_code FROM users")
+        codes = [row[0] for row in cursor.fetchall()]
+        
+        print(f"📊 В базе пользователей: {user_count}, коды: {codes}")
+        
+        if user_count == 0:
+            print("🔄 База пустая, запускаем инициализацию...")
+            conn.close()
+            # Импортируем и запускаем инициализацию
+            from init_database import init_database
+            init_database()
+        else:
+            print("✅ База данных уже инициализирована")
+            conn.close()
+            
+    except sqlite3.OperationalError:
+        print("🔄 База не существует, создаем...")
+        conn.close()
+        from init_database import init_database
+        init_database()
+    
     # Добавляем обработчик ошибок
     async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f'Update {update} caused error {context.error}')
         
-    init_db()
-    
     application = Application.builder().token(BOT_TOKEN).build()
 
     # Регистрация обработчиков в правильном порядке
@@ -465,7 +504,7 @@ def main():
     application.add_error_handler(error_handler)
     
     # Запуск бота с обработкой конфликтов
-    print("Бот запущен! Ожидаем сообщения...")
+    print("🤖 Бот запущен! Ожидаем сообщения...")
     try:
         application.run_polling()
     except Conflict as e:
