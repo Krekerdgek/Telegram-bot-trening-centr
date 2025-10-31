@@ -2,8 +2,10 @@
 import logging
 import sqlite3
 import os
+import time
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.error import Conflict
 import secrets
 import string
 
@@ -445,6 +447,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Основная функция
 def main():
+    # Добавляем обработчик ошибок
+    async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        logging.error(f'Update {update} caused error {context.error}')
+        
     init_db()
     
     application = Application.builder().token(BOT_TOKEN).build()
@@ -455,9 +461,20 @@ def main():
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Запуск бота
+    # Добавляем обработчик ошибок
+    application.add_error_handler(error_handler)
+    
+    # Запуск бота с обработкой конфликтов
     print("Бот запущен! Ожидаем сообщения...")
-    application.run_polling()
+    try:
+        application.run_polling()
+    except Conflict as e:
+        print(f"⚠️ Обнаружен конфликт: {e}")
+        print("🔄 Перезапускаем бота через 10 секунд...")
+        time.sleep(10)
+        main()  # Рекурсивный перезапуск
+    except Exception as e:
+        print(f"❌ Критическая ошибка: {e}")
 
 if __name__ == '__main__':
     main()
