@@ -45,6 +45,19 @@ def init_db():
     conn.close()
     print("Таблицы созданы успешно!")
 
+def clear_old_data():
+    """Очищаем старые данные"""
+    conn = sqlite3.connect('school_bot.db')
+    cursor = conn.cursor()
+    
+    cursor.execute("DELETE FROM users")
+    cursor.execute("DELETE FROM groups")
+    cursor.execute("DELETE FROM lessons")
+    
+    conn.commit()
+    conn.close()
+    print("Старые данные очищены!")
+
 def add_sample_data():
     conn = sqlite3.connect('school_bot.db')
     cursor = conn.cursor()
@@ -70,13 +83,21 @@ def add_sample_data():
     cursor.executemany('INSERT OR REPLACE INTO lessons VALUES (?, ?, ?, ?, ?, ?, ?)', lessons)
     print("Занятия добавлены!")
     
-    # Добавляем тестового пользователя
-    cursor.execute('''
-        INSERT OR REPLACE INTO users 
-        (user_id, phone, personal_code, student_name, group_id, balance, is_verified) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (123456789, "+79123456789", "123456", "Иван Петров", 1, 1500.0, True))
-    print("Тестовый пользователь добавлен!")
+    # Добавляем тестовых пользователей БЕЗ user_id (он установится при авторизации)
+    test_users = [
+        (None, "+79123456789", "123456", "Иван Петров", 1, 1500.0, False),
+        (None, "+79111111111", "111111", "Мария Сидорова", 2, 2000.0, False),
+        (None, "+79222222222", "222222", "Алексей Иванов", 3, 1800.0, False)
+    ]
+    
+    for user in test_users:
+        cursor.execute('''
+            INSERT OR REPLACE INTO users 
+            (user_id, phone, personal_code, student_name, group_id, balance, is_verified) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', user)
+    
+    print("Тестовые пользователи добавлены!")
     
     conn.commit()
     conn.close()
@@ -106,7 +127,7 @@ def check_database():
     users = cursor.fetchall()
     print(f"\nПользователи ({len(users)} шт.):")
     for user in users:
-        print(f"  ID: {user[0]}, Имя: {user[3]}, Телефон: {user[1]}")
+        print(f"  UserID: {user[0]}, Телефон: {user[1]}, Код: {user[2]}, Имя: {user[3]}, Верифицирован: {user[6]}")
     
     # Проверяем занятия
     cursor.execute("SELECT * FROM lessons")
@@ -120,7 +141,11 @@ def check_database():
 if __name__ == '__main__':
     print("Начинаем создание базы данных...")
     init_db()          # Создаем таблицы
+    clear_old_data()   # Очищаем старые данные
     add_sample_data()  # Добавляем данные
     check_database()   # Показываем что получилось
-    print("\nБаза данных готова к использованию!")
-    input("Нажмите Enter для выхода...")
+    print("\n✅ База данных готова к использованию!")
+    print("\n🔐 Тестовые коды для авторизации:")
+    print("   123456 - Иван Петров (Математика)")
+    print("   111111 - Мария Сидорова (Физика)") 
+    print("   222222 - Алексей Иванов (Программирование)")
