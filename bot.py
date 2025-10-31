@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 import logging
 import sqlite3
-from datetime import datetime, timedelta
+import os
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 import secrets
 import string
 
@@ -13,7 +13,8 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-BOT_TOKEN = "8365124344:AAHlMzG3xIGLEEOt_G3OH4W3MFrBHawNuSY"
+# Токен бота из переменных окружения Railway
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8365124344:AAHlMzG3xIGLEEOt_G3OH4W3MFrBHawNuSY")
 
 # Инициализация базы данных
 def init_db():
@@ -78,7 +79,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Описание возможностей бота
     welcome_text = """
-🎓 *Добро пожаловать в тренинг центр "В два счёта"!*
+🎓 *Добро пожаловать в учебный центр "В два счёта"!*
 
 🤖 *Этот бот поможет вам:*
 
@@ -230,11 +231,15 @@ async def verify_personal_code(update: Update, context: ContextTypes.DEFAULT_TYP
     conn = sqlite3.connect('school_bot.db')
     cursor = conn.cursor()
     
+    # ДЕБАГ: логируем поиск
+    print(f"🔍 Поиск пользователя с кодом: '{code}'")
+    
     # Ищем пользователя по коду (игнорируя user_id)
     cursor.execute('SELECT * FROM users WHERE personal_code = ?', (code,))
     user = cursor.fetchone()
     
     if user:
+        print(f"✅ Пользователь найден: {user}")
         # Обновляем user_id на реальный из Telegram
         cursor.execute('UPDATE users SET user_id = ?, is_verified = TRUE WHERE personal_code = ?', 
                      (user_id, code))
@@ -253,10 +258,17 @@ async def verify_personal_code(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         await show_main_menu(update, context)
     else:
+        print(f"❌ Пользователь с кодом '{code}' не найден")
+        # Показываем какие коды есть в базе для отладки
+        cursor.execute('SELECT personal_code FROM users')
+        all_codes = [row[0] for row in cursor.fetchall()]
+        print(f"Доступные коды в базе: {all_codes}")
+        
         await update.message.reply_text(
-            "❌ *Неверный код.*\n\n"
-            "Попробуйте еще раз или используйте авторизацию по номеру телефона.\n"
-            "Доступные тестовые коды: 123456, 111111, 222222",
+            f"❌ *Неверный код.*\n\n"
+            f"Попробуйте еще раз.\n"
+            f"Доступные тестовые коды: 123456, 111111, 222222\n"
+            f"Коды в базе: {', '.join(all_codes) if all_codes else 'нет кодов'}",
             parse_mode='Markdown'
         )
     
@@ -449,4 +461,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
