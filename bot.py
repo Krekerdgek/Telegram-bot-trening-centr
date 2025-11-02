@@ -20,7 +20,7 @@ logging.basicConfig(
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8365124344:AAHlMzG3xIGLEEOt_G3OH4W3MFrBHawNuSY")
 
 # ID администраторов (ЗАМЕНИТЕ НА РЕАЛЬНЫЕ ID TELEGRAM)
-ADMIN_IDS = [123456789]  # Замените на ваш Telegram ID
+ADMIN_IDS = [844196448]  # Замените на ваш Telegram ID
 
 def is_admin(user_id: int) -> bool:
     """Проверяет, является ли пользователь администратором"""
@@ -783,3 +783,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
