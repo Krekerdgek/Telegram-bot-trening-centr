@@ -4,6 +4,8 @@ import sqlite3
 import os
 import time
 import asyncio
+import pandas as pd
+import io
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 from telegram.error import Conflict
@@ -20,7 +22,7 @@ logging.basicConfig(
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8365124344:AAHlMzG3xIGLEEOt_G3OH4W3MFrBHawNuSY")
 
 # ID администраторов (ЗАМЕНИТЕ НА РЕАЛЬНЫЕ ID TELEGRAM)
-ADMIN_IDS = [844196448]  # Замените на ваш Telegram ID
+ADMIN_IDS = [123456789]  # Замените на ваш Telegram ID
 
 def is_admin(user_id: int) -> bool:
     """Проверяет, является ли пользователь администратором"""
@@ -116,14 +118,21 @@ def get_admin_stats():
     }
 
 async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает панель администратора"""
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("❌ У вас нет доступа к этой команде")
+    """Показывает панель администратора с проверкой пароля"""
+    
+    # Проверяем пароль
+    if not context.args or context.args[0] != "555":
+        await update.message.reply_text(
+            "🔐 *Требуется авторизация*\n\n"
+            "Используйте команду:\n"
+            "`/admin 555`",
+            parse_mode='Markdown'
+        )
         return
     
+    # Пароль верный - показываем админ-панель
     stats = get_admin_stats()
     
-    # Клавиатура админ-панели
     keyboard = [
         [InlineKeyboardButton("📢 Рассылка всем", callback_data="admin_broadcast_all")],
         [InlineKeyboardButton("🎯 Рассылка по группам", callback_data="admin_broadcast_groups")],
@@ -310,6 +319,130 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
+# ==================== ИМПОРТ ИЗ EXCEL ====================
+
+async def handle_excel_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает Excel файлы от администратора"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ У вас нет прав для этой команды")
+        return
+    
+    if not update.message.document:
+        await update.message.reply_text(
+            "📤 *Загрузка данных из Excel*\n\n"
+            "Отправьте Excel файл (.xlsx) со следующими колонками:\n\n"
+            "• student_name - Имя ученика\n"
+            "• phone - Телефон\n" 
+            "• group_name - Название группы\n"
+            "• balance - Баланс\n\n"
+            "💡 *Пример структуры:*\n"
+            "| student_name | phone       | group_name     | balance |\n"
+            "|--------------|-------------|----------------|---------|\n"
+            "| Иван Петров  | +79123456789| Математика-1   | 1500    |",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Проверяем что это Excel файл
+    file_name = update.message.document.file_name.lower()
+    if not file_name.endswith(('.xlsx', '.xls')):
+        await update.message.reply_text("❌ Пожалуйста, отправьте файл Excel (.xlsx или .xls)")
+        return
+    
+    await update.message.reply_text("🔄 Скачиваю и обрабатываю файл...")
+    
+    try:
+        # Скачиваем файл
+        file = await update.message.document.get_file()
+        file_bytes = await file.download_as_bytearray()
+        
+        # Читаем Excel файл
+        df = pd.read_excel(io.BytesIO(file_bytes))
+        
+        # Проверяем необходимые колонки
+        required_columns = ['student_name', 'phone', 'group_name', 'balance']
+        if not all(col in df.columns for col in required_columns):
+            missing = [col for col in required_columns if col not in df.columns]
+            await update.message.reply_text(
+                f"❌ В файле отсутствуют колонки: {', '.join(missing)}\n\n"
+                f"Нужные колонки: {', '.join(required_columns)}"
+            )
+            return
+        
+        conn = sqlite3.connect('school_bot.db')
+        cursor = conn.cursor()
+        
+        added_count = 0
+        updated_count = 0
+        errors = []
+        
+        for index, row in df.iterrows():
+            try:
+                student_name = str(row['student_name']).strip()
+                phone = str(row['phone']).strip()
+                group_name = str(row['group_name']).strip()
+                balance = float(row['balance'])
+                
+                # Пропускаем пустые строки
+                if not student_name or not phone:
+                    continue
+                
+                # Получаем ID группы
+                cursor.execute("SELECT group_id FROM groups WHERE group_name = ?", (group_name,))
+                group_result = cursor.fetchone()
+                
+                if not group_result:
+                    errors.append(f"Строка {index+2}: Группа '{group_name}' не найдена")
+                    continue
+                
+                group_id = group_result[0]
+                
+                # Проверяем существует ли пользователь
+                cursor.execute("SELECT * FROM users WHERE phone = ?", (phone,))
+                existing_user = cursor.fetchone()
+                
+                if existing_user:
+                    # Обновляем существующего пользователя
+                    cursor.execute('''
+                        UPDATE users SET student_name = ?, group_id = ?, balance = ?
+                        WHERE phone = ?
+                    ''', (student_name, group_id, balance, phone))
+                    updated_count += 1
+                else:
+                    # Создаем нового пользователя
+                    personal_code = generate_personal_code()
+                    cursor.execute('''
+                        INSERT INTO users (phone, personal_code, student_name, group_id, balance, is_verified)
+                        VALUES (?, ?, ?, ?, ?, FALSE)
+                    ''', (phone, personal_code, student_name, group_id, balance))
+                    added_count += 1
+                
+            except Exception as e:
+                errors.append(f"Строка {index+2}: {str(e)}")
+        
+        conn.commit()
+        conn.close()
+        
+        # Формируем отчет
+        report = f"📊 *Отчет по импорту данных:*\n\n"
+        report += f"✅ Добавлено: {added_count} пользователей\n"
+        report += f"🔄 Обновлено: {updated_count} пользователей\n"
+        report += f"📋 Всего обработано: {len(df)} строк\n"
+        
+        if errors:
+            report += f"\n❌ Ошибки ({len(errors)}):\n"
+            for error in errors[:5]:  # Показываем первые 5 ошибок
+                report += f"• {error}\n"
+            if len(errors) > 5:
+                report += f"• ... и еще {len(errors) - 5} ошибок\n"
+        else:
+            report += "\n🎉 Все данные успешно обработаны!"
+        
+        await update.message.reply_text(report, parse_mode='Markdown')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка обработки файла: {str(e)}")
+
 # ==================== ОСНОВНЫЕ ФУНКЦИИ БОТА ====================
 
 # Команда /start с описанием бота
@@ -326,7 +459,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await update.message.reply_text(
             "👋 *Приветствую, администратор!*\n\n"
-            "Вы можете перейти в админ-панель или использовать бот как обычный пользователь.",
+            "Вы можете перейти в админ-панель или использовать бот как обычный пользователь.\n\n"
+            "🔐 *Для админ-панели используйте:*\n"
+            "`/admin 555`",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
@@ -355,9 +490,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Контактная информация
 • Учебный прогресс
 
-💬 *Общение*
-• Ссылки на чаты школы
-• Общение с группой
+🌐 *Соцсети*
+• Наша группа ВКонтакте
+• Новости и анонсы
 
 🔐 *Для начала работы необходимо авторизоваться*
     """
@@ -377,9 +512,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 *Основные функции:*
 
 📅 *Ближайшие занятия* - покажет ваше расписание на ближайшие дни
-💳 *Баланс и оплата* - информация о балансе и оплата занятий
+💳 *Баланс и оплата* - информация о балансe и оплата занятий
 👤 *Личный кабинет* - ваши персональные данные
-💬 *Чат школы* - переход в чаты для общения
+🌐 *ВКонтакте* - наша группа ВКонтакте
 
 *Способы авторизации:*
 📱 *По номеру телефона* - используйте ваш зарегистрированный номер
@@ -414,7 +549,7 @@ async def show_auth_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         ["📅 Ближайшие занятия", "💳 Баланс и оплата"],
-        ["👤 Личный кабинет", "💬 Чат школы"],
+        ["👤 Личный кабинет", "🌐 ВКонтакте"],
         ["🔄 Обновить данные", "🆘 Помощь"]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
@@ -425,7 +560,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📅 *Ближайшие занятия* - ваше расписание\n"
         "💳 *Баланс и оплата* - финансовая информация\n"  
         "👤 *Личный кабинет* - ваши данные\n"
-        "💬 *Чат школы* - общение с сообществом\n"
+        "🌐 *ВКонтакте* - наша группа ВКонтакте\n"
         "🔄 *Обновить данные* - актуализировать информацию\n"
         "🆘 *Помощь* - справка по использованию",
         reply_markup=reply_markup,
@@ -639,21 +774,28 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ *Данные не найдены.*", parse_mode='Markdown')
 
-# Чат школы
-async def show_school_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ВКонтакте вместо чата школы
+async def show_vkontakte(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authenticated(update.effective_user.id):
+        await show_auth_menu(update, context)
+        return
+    
     keyboard = [
-        [InlineKeyboardButton("💬 Общий чат школы", url="https://t.me/your_school_chat")],
-        [InlineKeyboardButton("📚 Чат вашей группы", url="https://t.me/your_group_chat")],
-        [InlineKeyboardButton("📞 Техподдержка", url="https://t.me/your_support_chat")]
+        [InlineKeyboardButton("🌐 Перейти в ВКонтакте", url="https://vk.com/vdvascheta37")],
+        [InlineKeyboardButton("📞 Написать в поддержку", url="https://t.me/your_support_chat")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        "💬 *Чаты учебного центра:*\n\n"
-        "Выберите чат для общения:\n\n"
-        "💬 *Общий чат школы* - общение со всеми учениками\n"
-        "📚 *Чат вашей группы* - общение с вашей учебной группой\n"
-        "📞 *Техподдержка* - помощь по техническим вопросам",
+        "🌐 *Наша группа ВКонтакте*\n\n"
+        "Присоединяйтесь к нашему сообществу в ВКонтакте!\n\n"
+        "✨ *Что вас ждет:*\n"
+        "• 📢 Новости и анонсы\n"
+        "• 📸 Фото и видео с занятий\n"
+        "• 💬 Общение с преподавателями\n"
+        "• 🎯 Полезные материалы\n"
+        "• 🏆 Результаты учеников\n\n"
+        "Нажмите кнопку ниже чтобы перейти:",
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
@@ -668,7 +810,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Обработка админ-команд
     if is_admin(user_id):
         if text == "🎯 Открыть админ-панель":
-            await show_admin_panel(update, context)
+            await update.message.reply_text("🔐 Используйте команду: `/admin 555`", parse_mode='Markdown')
             return
         elif text == "📱 Пользовательский режим":
             await show_auth_menu(update, context)
@@ -686,7 +828,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if text == "🔐 Ввод персонального кода":
             print("📝 Запрос на ввод кода")
             await handle_personal_code_input(update, context)
-        elif text in ["📱 Авторизация по номеру телефона", "💳 Баланс и оплата", "📅 Ближайшие занятия", "👤 Личный кабинет", "💬 Чат школы"]:
+        elif text in ["📱 Авторизация по номеру телефона", "💳 Баланс и оплата", "📅 Ближайшие занятия", "👤 Личный кабинет", "🌐 ВКонтакте"]:
             print("🚫 Попытка доступа к функциям без авторизации")
             await show_auth_menu(update, context)
         else:
@@ -702,8 +844,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_balance(update, context)
     elif text == "👤 Личный кабинет":
         await show_profile(update, context)
-    elif text == "💬 Чат школы":
-        await show_school_chat(update, context)
+    elif text == "🌐 ВКонтакте":
+        await show_vkontakte(update, context)
     elif text == "🔄 Обновить данные":
         await update.message.reply_text("✅ *Данные обновлены!*", parse_mode='Markdown')
     elif text == "🆘 Помощь":
@@ -756,13 +898,24 @@ def main():
         
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Регистрация обработчиков
+    # ==================== РЕГИСТРАЦИЯ ОБРАБОТЧИКОВ ====================
+    
+    # Команды
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("admin", show_admin_panel))
     application.add_handler(CommandHandler("broadcast", admin_broadcast))
+    
+    # Контакты
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    
+    # Excel файлы
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_excel_file))
+    
+    # Текстовые сообщения (должен быть ПОСЛЕДНИМ!)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Callback-кнопки
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^admin_"))
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^broadcast_"))
     
@@ -783,4 +936,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
