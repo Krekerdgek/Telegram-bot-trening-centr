@@ -125,7 +125,7 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "🔐 *Требуется авторизация*\n\n"
             "Используйте команду:\n"
-            "`/admin 555`",
+            "`/administratora`",
             parse_mode='Markdown'
         )
         return
@@ -936,3 +936,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
