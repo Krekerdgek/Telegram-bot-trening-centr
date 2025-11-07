@@ -6,6 +6,8 @@ import time
 import asyncio
 import pandas as pd
 import io
+import requests
+import json
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 from telegram.error import Conflict
@@ -23,6 +25,148 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "8365124344:AAHlMzG3xIGLEEOt_G3OH4W3MFrB
 
 # ID администраторов (ЗАМЕНИТЕ НА РЕАЛЬНЫЕ ID TELEGRAM)
 ADMIN_IDS = [123456789]  # Замените на ваш Telegram ID
+
+# ==================== ИИ ИНТЕГРАЦИЯ ====================
+
+class AIAssistant:
+    def __init__(self):
+        # Используем бесплатные облачные API как основной вариант
+        self.use_cloud_api = True
+        self.cloud_api_url = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium"
+        self.huggingface_token = os.environ.get("HUGGINGFACE_TOKEN", "")
+        
+        # Локальный Ollama как запасной вариант
+        self.ollama_url = "http://localhost:11434/api/generate"
+        self.ollama_model = "llama3.1:8b"
+        
+    def get_ai_response(self, user_message, user_context=""):
+        """Получает ответ от ИИ-ассистента"""
+        
+        # Системный промпт для детского центра
+        system_prompt = f"""
+        Ты - дружелюбный AI-помощник детского тренинг-центра "В два счёта". 
+        Ты помогаешь родителям и детям с вопросами о занятиях, расписании, оплате.
+        
+        Контекст пользователя: {user_context}
+        
+        Твой стиль общения:
+        - Дружелюбный и поддерживающий 🎓
+        - Простые и понятные объяснения
+        - Используй эмодзи для настроения ✨👋
+        - Будь терпеливым как с детьми
+        - Если не знаешь ответа - направляй к администратору
+        - Отвечай кратко (максимум 2-3 предложения)
+        
+        Частые вопросы:
+        - Расписание: используй кнопку "📅 Ближайшие занятия"
+        - Баланс: используй кнопку "💳 Баланс и оплата"  
+        - Личные данные: используй кнопку "👤 Личный кабинет"
+        - Контакты: используй кнопку "🌐 ВКонтакте"
+        """
+        
+        # Пробуем облачный API сначала
+        if self.use_cloud_api and self.huggingface_token:
+            try:
+                headers = {"Authorization": f"Bearer {self.huggingface_token}"}
+                payload = {
+                    "inputs": f"{system_prompt}\n\nВопрос: {user_message}",
+                    "parameters": {"max_length": 200, "temperature": 0.7}
+                }
+                
+                response = requests.post(
+                    self.cloud_api_url, 
+                    headers=headers, 
+                    json=payload,
+                    timeout=15
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    if isinstance(result, list) and len(result) > 0:
+                        return result[0].get('generated_text', 'Не могу ответить в данный момент.')
+                    return "🤖 Извините, возникла ошибка при обработке запроса."
+                    
+            except Exception as e:
+                print(f"❌ Ошибка облачного ИИ: {e}")
+                # Пробуем локальный Ollama как запасной вариант
+                return self._try_ollama(system_prompt, user_message)
+        
+        # Если облачный API не доступен, пробуем Ollama
+        return self._try_ollama(system_prompt, user_message)
+    
+    def _try_ollama(self, system_prompt, user_message):
+        """Пробует получить ответ от локального Ollama"""
+        try:
+            response = requests.post(
+                self.ollama_url,
+                json={
+                    'model': self.ollama_model,
+                    'prompt': f"{system_prompt}\n\nВопрос: {user_message}",
+                    'stream': False,
+                    'options': {
+                        'temperature': 0.7,
+                        'max_tokens': 150
+                    }
+                },
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                return response.json().get('response', 'Не могу ответить в данный момент.')
+            else:
+                return "🤖 Сервис временно недоступен. Используйте кнопки меню для навигации."
+                
+        except Exception as e:
+            print(f"❌ Ошибка локального ИИ: {e}")
+            return "🤖 Извините, AI-помощник временно недоступен. Пожалуйста, используйте кнопки меню или обратитесь к администратору."
+
+# Создаем экземпляр ассистента
+ai_assistant = AIAssistant()
+
+async def get_user_context(user_id):
+    """Получает контекст пользователя для персонализации ответов ИИ"""
+    conn = sqlite3.connect('school_bot.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT u.student_name, g.group_name, u.balance
+        FROM users u 
+        LEFT JOIN groups g ON u.group_id = g.group_id 
+        WHERE u.user_id = ?
+    ''', (user_id,))
+    
+    user_data = cursor.fetchone()
+    conn.close()
+    
+    if user_data:
+        name, group, balance = user_data
+        context = f"Имя: {name or 'не указано'}, Группа: {group or 'не назначена'}, Баланс: {balance} руб."
+    else:
+        context = "Пользователь не найден в базе"
+    
+    return context
+
+async def handle_ai_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает произвольные вопросы через ИИ"""
+    if not is_authenticated(update.effective_user.id):
+        await show_auth_menu(update, context)
+        return
+    
+    user_message = update.message.text
+    user_id = update.effective_user.id
+    
+    # Показываем что обрабатываем вопрос
+    processing_msg = await update.message.reply_text("🤔 *Думаю над ответом...*", parse_mode='Markdown')
+    
+    # Получаем контекст пользователя для персонализации
+    user_context = await get_user_context(user_id)
+    
+    # Получаем ответ от ИИ
+    ai_response = ai_assistant.get_ai_response(user_message, context=user_context)
+    
+    # Удаляем сообщение "Думаю" и отправляем ответ
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=processing_msg.message_id)
+    await update.message.reply_text(ai_response, parse_mode='Markdown')
 
 def is_admin(user_id: int) -> bool:
     """Проверяет, является ли пользователь администратором"""
@@ -125,7 +269,7 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "🔐 *Требуется авторизация*\n\n"
             "Используйте команду:\n"
-            "`/administratora`",
+            "`/admin 555`",
             parse_mode='Markdown'
         )
         return
@@ -138,6 +282,7 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🎯 Рассылка по группам", callback_data="admin_broadcast_groups")],
         [InlineKeyboardButton("📊 Статистика", callback_data="admin_stats")],
         [InlineKeyboardButton("👥 Список пользователей", callback_data="admin_users")],
+        [InlineKeyboardButton("🤖 Статус ИИ", callback_data="admin_ai_status")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -195,6 +340,32 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         
     elif callback_data == "admin_users":
         await show_users_list(query)
+        
+    elif callback_data == "admin_ai_status":
+        # Проверяем статус ИИ сервисов
+        status_message = "🤖 *Статус AI-сервисов:*\n\n"
+        
+        # Проверяем Hugging Face
+        try:
+            if ai_assistant.huggingface_token:
+                headers = {"Authorization": f"Bearer {ai_assistant.huggingface_token}"}
+                response = requests.get("https://api-inference.huggingface.co/status", timeout=10)
+                status_message += f"• 🤗 Hugging Face: {'✅ Онлайн' if response.status_code == 200 else '❌ Офлайн'}\n"
+            else:
+                status_message += "• 🤗 Hugging Face: 🔶 Токен не настроен\n"
+        except:
+            status_message += "• 🤗 Hugging Face: ❌ Офлайн\n"
+        
+        # Проверяем Ollama
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=5)
+            status_message += f"• 🦙 Ollama: {'✅ Онлайн' if response.status_code == 200 else '❌ Офлайн'}\n"
+        except:
+            status_message += "• 🦙 Ollama: ❌ Офлайн\n"
+        
+        status_message += f"\n📊 *Используется:* {'Облачный API' if ai_assistant.use_cloud_api else 'Локальный Ollama'}"
+        
+        await query.edit_message_text(status_message, parse_mode='Markdown')
 
 async def show_group_broadcast_menu(query):
     """Показывает меню рассылки по группам"""
@@ -494,6 +665,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Наша группа ВКонтакте
 • Новости и анонсы
 
+🤖 *AI-помощник*
+• Ответы на любые вопросы
+• Помощь с расписанием
+• Консультации по занятиям
+
 🔐 *Для начала работы необходимо авторизоваться*
     """
     
@@ -515,6 +691,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 💳 *Баланс и оплата* - информация о балансe и оплата занятий
 👤 *Личный кабинет* - ваши персональные данные
 🌐 *ВКонтакте* - наша группа ВКонтакте
+🤖 *AI-помощник* - задайте любой вопрос нашему ИИ
+
+*Новый AI-помощник:*
+• Отвечает на вопросы о расписании, оплате, программах
+• Помогает с организационными вопросами
+• Всегда вежлив и терпелив 🎓
+• Если не знает ответа - направит к администратору
 
 *Способы авторизации:*
 📱 *По номеру телефона* - используйте ваш зарегистрированный номер
@@ -550,7 +733,8 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         ["📅 Ближайшие занятия", "💳 Баланс и оплата"],
         ["👤 Личный кабинет", "🌐 ВКонтакте"],
-        ["🔄 Обновить данные", "🆘 Помощь"]
+        ["🤖 Задать вопрос ИИ", "🆘 Помощь"],
+        ["🔄 Обновить данные"]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
     
@@ -561,8 +745,9 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💳 *Баланс и оплата* - финансовая информация\n"  
         "👤 *Личный кабинет* - ваши данные\n"
         "🌐 *ВКонтакте* - наша группа ВКонтакте\n"
-        "🔄 *Обновить данные* - актуализировать информацию\n"
-        "🆘 *Помощь* - справка по использованию",
+        "🤖 *Задать вопрос ИИ* - AI-помощник ответит на любой вопрос\n"
+        "🆘 *Помощь* - справка по использованию\n"
+        "🔄 *Обновить данные* - актуализировать информацию",
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
@@ -828,7 +1013,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if text == "🔐 Ввод персонального кода":
             print("📝 Запрос на ввод кода")
             await handle_personal_code_input(update, context)
-        elif text in ["📱 Авторизация по номеру телефона", "💳 Баланс и оплата", "📅 Ближайшие занятия", "👤 Личный кабинет", "🌐 ВКонтакте"]:
+        elif text in ["📱 Авторизация по номеру телефона", "💳 Баланс и оплата", "📅 Ближайшие занятия", 
+                     "👤 Личный кабинет", "🌐 ВКонтакте", "🤖 Задать вопрос ИИ"]:
             print("🚫 Попытка доступа к функциям без авторизации")
             await show_auth_menu(update, context)
         else:
@@ -846,6 +1032,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_profile(update, context)
     elif text == "🌐 ВКонтакте":
         await show_vkontakte(update, context)
+    elif text == "🤖 Задать вопрос ИИ":
+        await update.message.reply_text(
+            "🤖 *AI-помощник учебного центра*\n\n"
+            "Задайте мне любой вопрос о:\n"
+            "• 📅 Расписании занятий\n"
+            "• 💰 Оплате и балансе\n" 
+            "• 🎯 Учебных программах\n"
+            "• 👥 Наших преподавателях\n"
+            "• ❓ Других вопросах\n\n"
+            "Я постараюсь помочь! 🎓✨",
+            parse_mode='Markdown'
+        )
     elif text == "🔄 Обновить данные":
         await update.message.reply_text("✅ *Данные обновлены!*", parse_mode='Markdown')
     elif text == "🆘 Помощь":
@@ -853,11 +1051,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "🔐 Ввод персонального кода":
         await handle_personal_code_input(update, context)
     else:
-        await update.message.reply_text(
-            "🤔 *Не понял ваше сообщение*\n\n"
-            "Используйте кнопки меню для навигации или /help для справки",
-            parse_mode='Markdown'
-        )
+        # ВСЕ остальные сообщения идут в ИИ!
+        await handle_ai_question(update, context)
 
 # Основная функция
 def main():
@@ -936,4 +1131,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
