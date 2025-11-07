@@ -30,14 +30,8 @@ ADMIN_IDS = [123456789]  # Замените на ваш Telegram ID
 
 class AIAssistant:
     def __init__(self):
-        # Используем бесплатные облачные API как основной вариант
-        self.use_cloud_api = True
-        self.cloud_api_url = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium"
         self.huggingface_token = os.environ.get("HUGGINGFACE_TOKEN", "")
-        
-        # Локальный Ollama как запасной вариант
-        self.ollama_url = "http://localhost:11434/api/generate"
-        self.ollama_model = "llama3.1:8b"
+        self.use_cloud_api = True if self.huggingface_token else False
         
     def get_ai_response(self, user_message, user_context=""):
         """Получает ответ от ИИ-ассистента"""
@@ -64,8 +58,8 @@ class AIAssistant:
         - Контакты: используй кнопку "🌐 ВКонтакте"
         """
         
-        # Пробуем облачный API сначала
-        if self.use_cloud_api and self.huggingface_token:
+        # Пробуем Hugging Face API
+        if self.use_cloud_api:
             try:
                 headers = {"Authorization": f"Bearer {self.huggingface_token}"}
                 payload = {
@@ -74,7 +68,7 @@ class AIAssistant:
                 }
                 
                 response = requests.post(
-                    self.cloud_api_url, 
+                    "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium",
                     headers=headers, 
                     json=payload,
                     timeout=15
@@ -88,37 +82,9 @@ class AIAssistant:
                     
             except Exception as e:
                 print(f"❌ Ошибка облачного ИИ: {e}")
-                # Пробуем локальный Ollama как запасной вариант
-                return self._try_ollama(system_prompt, user_message)
         
-        # Если облачный API не доступен, пробуем Ollama
-        return self._try_ollama(system_prompt, user_message)
-    
-    def _try_ollama(self, system_prompt, user_message):
-        """Пробует получить ответ от локального Ollama"""
-        try:
-            response = requests.post(
-                self.ollama_url,
-                json={
-                    'model': self.ollama_model,
-                    'prompt': f"{system_prompt}\n\nВопрос: {user_message}",
-                    'stream': False,
-                    'options': {
-                        'temperature': 0.7,
-                        'max_tokens': 150
-                    }
-                },
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                return response.json().get('response', 'Не могу ответить в данный момент.')
-            else:
-                return "🤖 Сервис временно недоступен. Используйте кнопки меню для навигации."
-                
-        except Exception as e:
-            print(f"❌ Ошибка локального ИИ: {e}")
-            return "🤖 Извините, AI-помощник временно недоступен. Пожалуйста, используйте кнопки меню или обратитесь к администратору."
+        # Запасной вариант - простые ответы
+        return "🤖 В настоящий момент я не могу обработать ваш вопрос. Пожалуйста, используйте кнопки меню или обратитесь к администратору учебного центра. 🎓"
 
 # Создаем экземпляр ассистента
 ai_assistant = AIAssistant()
@@ -355,13 +321,6 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 status_message += "• 🤗 Hugging Face: 🔶 Токен не настроен\n"
         except:
             status_message += "• 🤗 Hugging Face: ❌ Офлайн\n"
-        
-        # Проверяем Ollama
-        try:
-            response = requests.get("http://localhost:11434/api/tags", timeout=5)
-            status_message += f"• 🦙 Ollama: {'✅ Онлайн' if response.status_code == 200 else '❌ Офлайн'}\n"
-        except:
-            status_message += "• 🦙 Ollama: ❌ Офлайн\n"
         
         status_message += f"\n📊 *Используется:* {'Облачный API' if ai_assistant.use_cloud_api else 'Локальный Ollama'}"
         
@@ -1056,6 +1015,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Основная функция
 def main():
+    # ==================== ФИКС КОНФЛИКТА ====================
+    import requests
+    try:
+        # Закрываем предыдущие соединения с Telegram
+        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/close")
+        print("✅ Закрыли предыдущие соединения с Telegram")
+    except Exception as e:
+        print(f"ℹ️ Не удалось закрыть предыдущие соединения: {e}")
+    # ==================== КОНЕЦ ФИКСА ====================
+    
     # Автоматическая инициализация базы данных при запуске
     print("🔍 Проверяем базу данных...")
     conn = sqlite3.connect('school_bot.db')
@@ -1116,27 +1085,6 @@ def main():
     
     # Добавляем обработчик ошибок
     application.add_error_handler(error_handler)
-    
-    # Запуск бота с обработкой конфликтов
-    print("🤖 Бот запущен! Ожидаем сообщения...")
-    try:
-       def main():
-    # ==================== ФИКС КОНФЛИКТА ====================
-    import requests
-    try:
-        # Закрываем предыдущие соединения с Telegram
-        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/close")
-        print("✅ Закрыли предыдущие соединения с Telegram")
-    except Exception as e:
-        print(f"ℹ️ Не удалось закрыть предыдущие соединения: {e}")
-    # ==================== КОНЕЦ ФИКСА ====================
-    
-    # Автоматическая инициализация базы данных при запуске
-    print("🔍 Проверяем базу данных...")
-    conn = sqlite3.connect('school_bot.db')
-    
-    # ... ВЕСЬ ваш существующий код из функции main()
-    # включая инициализацию базы, создание application и т.д.
     
     # Запуск бота с обработкой конфликтов
     print("🤖 Бот запущен! Ожидаем сообщения...")
