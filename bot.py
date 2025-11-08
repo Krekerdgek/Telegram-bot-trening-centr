@@ -90,7 +90,7 @@ async def get_user_context(user_id):
     return context
 
 async def handle_ai_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обрабатывает произвольные вопросы через ИИ"""
+    """Обрабатывает вопросы через упрощенный ИИ"""
     if not is_authenticated(update.effective_user.id):
         await show_auth_menu(update, context)
         return
@@ -98,17 +98,13 @@ async def handle_ai_question(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_message = update.message.text
     user_id = update.effective_user.id
     
-    # Показываем что обрабатываем вопрос
-    processing_msg = await update.message.reply_text("🤔 *Думаю над ответом...*", parse_mode='Markdown')
-    
-    # Получаем контекст пользователя для персонализации
+    # Получаем контекст пользователя для персонализации (опционально)
     user_context = await get_user_context(user_id)
     
-    # Получаем ответ от ИИ
+    # Мгновенно получаем ответ от ИИ
     ai_response = ai_assistant.get_ai_response(user_message, context=user_context)
     
-    # Удаляем сообщение "Думаю" и отправляем ответ
-    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=processing_msg.message_id)
+    # Сразу отправляем ответ (без "Думаю над ответом...")
     await update.message.reply_text(ai_response, parse_mode='Markdown')
 
 def is_admin(user_id: int) -> bool:
@@ -1077,4 +1073,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
