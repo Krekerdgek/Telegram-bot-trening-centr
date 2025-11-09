@@ -126,45 +126,25 @@ def is_authenticated(user_id):
 
 # ==================== АДМИН-ПАНЕЛЬ ====================
 
-def get_admin_stats():
-    """Получает статистику для админ-панели"""
-    conn = sqlite3.connect('school_bot.db')
-    cursor = conn.cursor()
-    
-    # Активные пользователи
-    cursor.execute("SELECT COUNT(*) FROM users WHERE is_verified = TRUE")
-    active_users = cursor.fetchone()[0]
-    
-    # Все пользователи
-    cursor.execute("SELECT COUNT(*) FROM users")
-    total_users = cursor.fetchone()[0]
-    
-    # Группы
-    cursor.execute("SELECT COUNT(*) FROM groups")
-    groups_count = cursor.fetchone()[0]
-    
-    # Балансы
-    cursor.execute("SELECT SUM(balance) FROM users")
-    total_balance = cursor.fetchone()[0] or 0
-    
-    conn.close()
-    
-    return {
-        'active_users': active_users,
-        'total_users': total_users,
-        'groups_count': groups_count,
-        'total_balance': total_balance
-    }
+ADMIN_IDS = [844196448]  # ← ВАЖНО: замените на ваш ID!
+
+def is_admin(user_id: int) -> bool:
+    """Проверяет, является ли пользователь администратором"""
+    return user_id in ADMIN_IDS
 
 async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает панель администратора с проверкой пароля"""
     
-    # Проверяем пароль
+    # Сначала проверяем ID пользователя
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ У вас нет прав доступа к админ-панели")
+        return
+    
+    # Затем проверяем пароль
     if not context.args or context.args[0] != "555":
         await update.message.reply_text(
             "🔐 *Требуется авторизация*\n\n"
-            "Используйте команду:\n"
-            "`/admin 555`",
+            "Неверный пароль доступа.",
             parse_mode='Markdown'
         )
         return
@@ -197,10 +177,12 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     
+    # Двойная проверка - и ID пользователя и что он прошел авторизацию
     if not is_admin(query.from_user.id):
-        await query.edit_message_text("❌ Доступ запрещен")
+        await query.edit_message_text("❌ Доступ запрещен. Недостаточно прав.")
         return
     
+    # Остальной код без изменений...
     callback_data = query.data
     
     if callback_data == "admin_stats":
@@ -986,3 +968,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
