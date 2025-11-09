@@ -22,8 +22,8 @@ logging.basicConfig(
 # Токен бота из переменных окружения Railway
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8365124344:AAHlMzG3xIGLEEOt_G3OH4W3MFrBHawNuSY")
 
-# ID администраторов (ЗАМЕНИТЕ НА РЕАЛЬНЫЕ ID TELEGRAM)
-ADMIN_IDS = [123456789]  # Замените на ваш Telegram ID
+# ID администраторов 
+ADMIN_IDS = [844196448]  # ← ЗАМЕНИТЕ НА ВАШ ID!
 
 # ==================== УПРОЩЕННЫЙ ИИ ====================
 
@@ -126,28 +126,63 @@ def is_authenticated(user_id):
 
 # ==================== АДМИН-ПАНЕЛЬ ====================
 
-ADMIN_IDS = [844196448]  # ← ВАЖНО: замените на ваш ID!
-
-def is_admin(user_id: int) -> bool:
-    """Проверяет, является ли пользователь администратором"""
-    return user_id in ADMIN_IDS
+def get_admin_stats():
+    """Получает статистику для админ-панели"""
+    conn = sqlite3.connect('school_bot.db')
+    cursor = conn.cursor()
+    
+    # Активные пользователи
+    cursor.execute("SELECT COUNT(*) FROM users WHERE is_verified = TRUE")
+    active_users = cursor.fetchone()[0]
+    
+    # Все пользователи
+    cursor.execute("SELECT COUNT(*) FROM users")
+    total_users = cursor.fetchone()[0]
+    
+    # Группы
+    cursor.execute("SELECT COUNT(*) FROM groups")
+    groups_count = cursor.fetchone()[0]
+    
+    # Балансы
+    cursor.execute("SELECT SUM(balance) FROM users")
+    total_balance = cursor.fetchone()[0] or 0
+    
+    conn.close()
+    
+    return {
+        'active_users': active_users,
+        'total_users': total_users,
+        'groups_count': groups_count,
+        'total_balance': total_balance
+    }
 
 async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает панель администратора с проверкой пароля"""
     
+    user_id = update.effective_user.id
+    print(f"🔐 АДМИН: Запрос от пользователя {user_id}")
+    print(f"🔐 АДМИН: Аргументы команды: {context.args}")
+    
     # Сначала проверяем ID пользователя
-    if not is_admin(update.effective_user.id):
+    if not is_admin(user_id):
+        print(f"❌ АДМИН: Пользователь {user_id} не в списке ADMIN_IDS")
         await update.message.reply_text("❌ У вас нет прав доступа к админ-панели")
         return
     
+    print(f"✅ АДМИН: Пользователь {user_id} есть в списке ADMIN_IDS")
+    
     # Затем проверяем пароль
-    if not context.args or context.args[0] != "555":
-        await update.message.reply_text(
-            "🔐 *Требуется авторизация*\n\n"
-            "Неверный пароль доступа.",
-            parse_mode='Markdown'
-        )
+    if not context.args:
+        print("❌ АДМИН: Нет аргументов (пароля)")
+        await update.message.reply_text("🔐 *Требуется авторизация*\n\nНеверный пароль доступа.", parse_mode='Markdown')
         return
+    
+    if context.args[0] != "555":
+        print(f"❌ АДМИН: Неверный пароль. Получен: '{context.args[0]}'")
+        await update.message.reply_text("🔐 *Требуется авторизация*\n\nНеверный пароль доступа.", parse_mode='Markdown')
+        return
+    
+    print("✅ АДМИН: Пароль верный, показываем панель")
     
     # Пароль верный - показываем админ-панель
     stats = get_admin_stats()
@@ -171,6 +206,7 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+    print("✅ АДМИН: Панель отправлена пользователю")
 
 async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обрабатывает нажатия кнопок в админ-панели"""
@@ -182,7 +218,6 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text("❌ Доступ запрещен. Недостаточно прав.")
         return
     
-    # Остальной код без изменений...
     callback_data = query.data
     
     if callback_data == "admin_stats":
@@ -889,12 +924,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Основная функция
 def main():
-    # ФИКС КОНФЛИКТА - закрываем предыдущие соединения
+    print("🚀 ЗАПУСК БОТА...")
+    
+    # ФИКС КОНФЛИКТА - закрываем ВСЕ предыдущие соединения
     try:
-        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/close", timeout=5)
+        response = requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/close", 
+            timeout=3
+        )
         print("✅ Закрыли предыдущие соединения с Telegram")
-    except:
-        print("ℹ️ Не удалось закрыть предыдущие соединения")
+        time.sleep(2)  # Даем время на закрытие
+    except Exception as e:
+        print(f"ℹ️ Не удалось закрыть предыдущие соединения: {e}")
     
     # Автоматическая инициализация базы данных при запуске
     print("🔍 Проверяем базу данных...")
@@ -968,4 +1009,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
