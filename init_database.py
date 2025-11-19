@@ -17,7 +17,9 @@ def init_database():
             student_name TEXT,
             group_id INTEGER,
             balance REAL DEFAULT 0,
-            is_verified BOOLEAN DEFAULT FALSE
+            is_verified BOOLEAN DEFAULT FALSE,
+            lessons_attended INTEGER DEFAULT 0,
+            last_payment_date TEXT
         )
     ''')
     
@@ -44,7 +46,7 @@ def init_database():
         )
     ''')
     
-    # Таблица расписания по дням (НОВАЯ)
+    # Таблица расписания по дням
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS schedule (
             schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,7 +90,7 @@ def init_database():
     cursor.executemany('INSERT OR REPLACE INTO lessons VALUES (?, ?, ?, ?, ?, ?, ?)', lessons)
     print("✅ Занятия добавлены")
     
-    # Добавляем тестовое расписание (НОВОЕ)
+    # Добавляем тестовое расписание
     math_schedule = [
         (1, 1, '16:00', '17:30', 'Математика'),
         (1, 3, '16:00', '17:30', 'Математика'),
@@ -100,7 +102,12 @@ def init_database():
         (2, 4, '17:00', '18:30', 'Русский язык'),
     ]
     
-    for schedule in math_schedule + russian_schedule:
+    programming_schedule = [
+        (3, 1, '19:00', '20:30', 'Программирование'),
+        (3, 3, '19:00', '20:30', 'Программирование'),
+    ]
+    
+    for schedule in math_schedule + russian_schedule + programming_schedule:
         cursor.execute('''
             INSERT OR IGNORE INTO schedule (group_id, day_of_week, start_time, end_time, subject)
             VALUES (?, ?, ?, ?, ?)
@@ -110,18 +117,18 @@ def init_database():
     
     # Добавляем тестовых пользователей БЕЗ user_id (он установится при авторизации)
     test_users = [
-        (None, "+79123456789", "123456", "Иван Петров", 1, 1500.0, False),
-        (None, "+79111111111", "111111", "Мария Сидорова", 2, 2000.0, False),
-        (None, "+79222222222", "222222", "Алексей Иванов", 3, 1800.0, False),
-        (None, "+79333333333", "333333", "Екатерина Смирнова", 1, 1200.0, False),
-        (None, "+79444444444", "444444", "Дмитрий Козлов", 2, 2500.0, False)
+        (None, "79123456789", "123456", "Иван Петров", 1, 1500.0, False, 0, None),
+        (None, "79111111111", "111111", "Мария Сидорова", 2, 2000.0, False, 0, None),
+        (None, "79222222222", "222222", "Алексей Иванов", 3, 1800.0, False, 0, None),
+        (None, "79333333333", "333333", "Екатерина Смирнова", 1, 1200.0, False, 0, None),
+        (None, "79444444444", "444444", "Дмитрий Козлов", 2, 2500.0, False, 0, None)
     ]
     
     for user in test_users:
         cursor.execute('''
             INSERT OR REPLACE INTO users 
-            (user_id, phone, personal_code, student_name, group_id, balance, is_verified) 
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (user_id, phone, personal_code, student_name, group_id, balance, is_verified, lessons_attended, last_payment_date) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', user)
         print(f"✅ Добавлен: {user[3]} (код: {user[2]})")
     
