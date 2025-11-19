@@ -54,7 +54,7 @@ class SimpleAI:
         
         # Контакты
         elif any(word in user_lower for word in ['контакт', 'телефон', 'адрес', 'связ', 'написат', 'звонит', 'где', 'локац']):
-            return "🌐 *Контакты:*\n\n• Адрес: Ивановская область, г. Родники, ул. Любимова д.36\n• Телефон: +7(901)689-34-22\n• ВКонтакте: vk.com/vdvascheta37\n• Режим работы: Пn-Пт 10:00-19:00\n\nПриходите к нам! 📍"
+            return "🌐 *Контакты:*\n\n• Адрес: Ивановская область, г. Родники, ул. Любимова д.36\n• Телефон: +7(901)689-34-22\n• ВКонтакте: vk.com/vdvascheta37\n• Режим работы: Пн-Пт 10:00-19:00\n\nПриходите к нам! 📍"
         
         # Приветствие
         elif any(word in user_lower for word in ['привет', 'здравств', 'добрый', 'начать', 'старт']):
@@ -213,7 +213,7 @@ async def show_auth_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(
         "🔐 *Авторизация*\n\n"
-        "Для доступа к функциям бота необходимо авторизоваться.\n\n"
+        "Для доска к функциям бота необходимо авторизоваться.\n\n"
         "Вы можете:\n"
         "• 📱 *Отправить номер телефона* - автоматическая авторизация\n"
         "• 🔐 *Ввести код вручную* - если у вас есть персональный код\n\n"
@@ -963,71 +963,6 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-# ==================== АВТОМАТИЧЕСКИЕ ПРОЦЕССЫ ====================
-
-async def check_monthly_payments(context: ContextTypes.DEFAULT_TYPE):
-    """Проверяет и списывает абонемент 1 числа каждого месяца"""
-    today = datetime.now()
-    
-    # Проверяем что сегодня 1 число
-    if today.day == 1:
-        conn = sqlite3.connect('school_bot.db')
-        cursor = conn.cursor()
-        
-        # Получаем пользователей с положительным балансом
-        cursor.execute("SELECT user_id, student_name, balance FROM users WHERE balance > 0 AND is_verified = TRUE")
-        users = cursor.fetchall()
-        
-        for user_id, name, balance in users:
-            new_balance = max(0, balance - MONTHLY_SUBSCRIPTION)
-            cursor.execute("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, user_id))
-            
-            # Отправляем уведомление
-            try:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"💳 *Списание абонемента:*\n\n"
-                         f"Списано {MONTHLY_SUBSCRIPTION} руб. за месячный абонемент.\n"
-                         f"Новый баланс: {new_balance} руб.\n\n"
-                         f"Спасибо, что занимаетесь у нас! 🎓",
-                    parse_mode='Markdown'
-                )
-            except Exception as e:
-                print(f"❌ Не удалось отправить уведомление пользователю {user_id}: {e}")
-        
-        conn.commit()
-        conn.close()
-
-async def send_payment_reminders(context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет напоминания об оплате 16 числа каждого месяца"""
-    today = datetime.now()
-    
-    # Проверяем что сегодня 16 число
-    if today.day == 16:
-        conn = sqlite3.connect('school_bot.db')
-        cursor = conn.cursor()
-        
-        # Получаем пользователей с нулевым или отрицательным балансом
-        cursor.execute("SELECT user_id, student_name FROM users WHERE balance <= 0 AND is_verified = TRUE")
-        users = cursor.fetchall()
-        
-        for user_id, name in users:
-            try:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"🔔 *Напоминание об оплате:*\n\n"
-                         f"Уважаемый {name or 'клиент'}!\n"
-                         f"Напоминаем о необходимости внести оплату за обучение.\n"
-                         f"Стоимость абонемента: {MONTHLY_SUBSCRIPTION} руб./месяц\n\n"
-                         f"Оплатить можно в разделе '💳 Баланс и оплата'\n"
-                         f"Спасибо! 💫",
-                    parse_mode='Markdown'
-                )
-            except Exception as e:
-                print(f"❌ Не удалось отправить напоминание пользователю {user_id}: {e}")
-        
-        conn.close()
-
 # ==================== ОБРАБОТКА EXCEL ФАЙЛОВ ====================
 
 async def handle_excel_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1149,7 +1084,7 @@ def main():
         from init_database import init_database
         init_database()
     
-    # Создаем приложение
+    # Создаем приложение БЕЗ JobQueue
     application = Application.builder().token(BOT_TOKEN).build()
     
     # Добавляем обработчики
@@ -1172,10 +1107,7 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^my_schedule"))
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^send_to_selected"))
     
-    # Добавляем планировщик для автоматических процессов
-    job_queue = application.job_queue
-    job_queue.run_repeating(check_monthly_payments, interval=86400, first=10)  # Ежедневно
-    job_queue.run_repeating(send_payment_reminders, interval=86400, first=10)  # Ежедневно
+    # УБРАНЫ JobQueue обработчики чтобы избежать ошибок
     
     # Запускаем бота
     print("🤖 Бот запущен! Ожидаем сообщения...")
