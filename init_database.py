@@ -44,10 +44,23 @@ def init_database():
         )
     ''')
     
+    # Таблица расписания по дням (НОВАЯ)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS schedule (
+            schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER,
+            day_of_week INTEGER,
+            start_time TEXT,
+            end_time TEXT,
+            subject TEXT
+        )
+    ''')
+    
     # Очищаем старые данные
     cursor.execute("DELETE FROM users")
     cursor.execute("DELETE FROM groups") 
     cursor.execute("DELETE FROM lessons")
+    cursor.execute("DELETE FROM schedule")
     
     print("✅ Таблицы созданы/очищены")
     
@@ -74,6 +87,26 @@ def init_database():
     
     cursor.executemany('INSERT OR REPLACE INTO lessons VALUES (?, ?, ?, ?, ?, ?, ?)', lessons)
     print("✅ Занятия добавлены")
+    
+    # Добавляем тестовое расписание (НОВОЕ)
+    math_schedule = [
+        (1, 1, '16:00', '17:30', 'Математика'),
+        (1, 3, '16:00', '17:30', 'Математика'),
+        (1, 5, '16:00', '17:30', 'Математика'),
+    ]
+    
+    russian_schedule = [
+        (2, 2, '17:00', '18:30', 'Русский язык'),
+        (2, 4, '17:00', '18:30', 'Русский язык'),
+    ]
+    
+    for schedule in math_schedule + russian_schedule:
+        cursor.execute('''
+            INSERT OR IGNORE INTO schedule (group_id, day_of_week, start_time, end_time, subject)
+            VALUES (?, ?, ?, ?, ?)
+        ''', schedule)
+    
+    print("✅ Расписание добавлено")
     
     # Добавляем тестовых пользователей БЕЗ user_id (он установится при авторизации)
     test_users = [
@@ -104,12 +137,16 @@ def init_database():
     cursor.execute("SELECT COUNT(*) FROM lessons")
     lessons_count = cursor.fetchone()[0]
     
+    cursor.execute("SELECT COUNT(*) FROM schedule")
+    schedule_count = cursor.fetchone()[0]
+    
     conn.close()
     
     print("\n📊 *База данных успешно инициализирована!*")
     print(f"👥 Пользователей: {len(users_data)}")
     print(f"🎯 Групп: {len(groups_data)}") 
     print(f"📅 Занятий: {lessons_count}")
+    print(f"📋 Расписаний: {schedule_count}")
     
     print("\n🔐 *Тестовые коды для авторизации:*")
     for code, name in users_data:
@@ -148,6 +185,11 @@ def check_database():
         cursor.execute("SELECT COUNT(*) FROM lessons")
         lessons_count = cursor.fetchone()[0]
         print(f"📅 Занятий: {lessons_count}")
+        
+        # Проверяем расписание
+        cursor.execute("SELECT COUNT(*) FROM schedule")
+        schedule_count = cursor.fetchone()[0]
+        print(f"📋 Расписаний: {schedule_count}")
         
         # Показываем тестовые коды
         if users_count > 0:
