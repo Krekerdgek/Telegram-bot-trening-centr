@@ -38,7 +38,7 @@ class SimpleAI:
         
         # Расписание
         if any(word in user_lower for word in ['расписан', 'когда', 'время', 'заняти', 'день', 'недел']):
-            return "📅 *Расписание занятий:*\n\nЗанятия проходят по будням с 16:00 до 20:00 и по субботам с 10:00 до 14:00.\n\nЧтобы узнать ваше персональное расписание, используйте кнопку '📅 Ближайшие занятия' в главном меню! 🎓"
+            return "📅 *Расписание занятий:*\n\nЗанятия проходят по будням с 16:00 до 20:00 и по субботам с 10:00 до 14:00.\n\nЧтобы узнать ваше персональное расписание, используйте кнопку '📅 Моё расписание' в главном меню! 🎓"
         
         # Оплата и баланс
         elif any(word in user_lower for word in ['оплат', 'баланс', 'деньг', 'стоимос', 'цена', 'плат', 'денег', 'рубл', 'стоит']):
@@ -54,7 +54,7 @@ class SimpleAI:
         
         # Контакты
         elif any(word in user_lower for word in ['контакт', 'телефон', 'адрес', 'связ', 'написат', 'звонит', 'где', 'локац']):
-            return "🌐 *Контакты:*\n\n• Адрес: Ивановская область, г. Родники, ул. Любимова д.36\n• Телефон: +7(901)689-34-22\n• ВКонтакте: vk.com/vdvascheta37\n• Режим работы: Пн-Пт 10:00-19:00\n\nПриходите к нам! 📍"
+            return "🌐 *Контакты:*\n\n• Адрес: Ивановская область, г. Родники, ул. Любимова д.36\n• Телефон: +7(901)689-34-22\n• ВКонтакте: vk.com/vdvascheta37\n• Режим работы: Пn-Пт 10:00-19:00\n\nПриходите к нам! 📍"
         
         # Приветствие
         elif any(word in user_lower for word in ['привет', 'здравств', 'добрый', 'начать', 'старт']):
@@ -117,7 +117,7 @@ def init_db():
     # Таблица расписания по дням
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS schedule (
-            schedule_id INTEGER PRIMARY KEY,
+            schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
             group_id INTEGER,
             day_of_week INTEGER,
             start_time TEXT,
@@ -141,6 +141,448 @@ def is_authenticated(user_id):
     result = cursor.fetchone()
     conn.close()
     return result and result[0]
+
+# ==================== ОСНОВНЫЕ КОМАНДЫ ====================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if is_admin(user_id):
+        keyboard = [
+            [KeyboardButton("🎯 Открыть админ-панель")],
+            [KeyboardButton("📱 Пользовательский режим")]
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+        
+        await update.message.reply_text(
+            "👋 *Приветствую, администратор!*\n\n"
+            "Вы можете перейти в админ-панель или использовать бот как обычный пользователь.\n\n"
+            "🔐 *Для админ-панели используйте:*\n"
+            "`/admin 555`",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        return
+    
+    welcome_text = """
+🎓 *Добро пожаловать в учебный центр "В два счёта"!*
+
+🤖 *Этот бот поможет вам:*
+
+📅 *Узнать расписание*
+• Ваше расписание по дням недели
+• Ближайшие занятия
+• Время и место занятий
+
+💳 *Контролировать финансы*
+• Текущий баланс
+• Автоматическое списание абонемента
+• История платежей
+
+👤 *Личный кабинет*
+• Ваши персональные данные
+• Статистика посещений
+• Контактная информация
+
+🌐 *Соцсети*
+• Наша группа ВКонтакте
+• Новости и анонсы
+
+🤖 *Умный помощник*
+• Ответы на вопросы о занятиях
+• Информация о программах
+• Консультации по обучению
+
+🔐 *Для начала работы необходимо авторизоваться*
+    """
+    
+    if is_authenticated(user_id):
+        await update.message.reply_text(welcome_text, parse_mode='Markdown')
+        await show_main_menu(update, context)
+    else:
+        await update.message.reply_text(welcome_text, parse_mode='Markdown')
+        await show_auth_menu(update, context)
+
+async def show_auth_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает меню авторизации"""
+    keyboard = [
+        [KeyboardButton("📱 Отправить номер телефона", request_contact=True)],
+        [KeyboardButton("🔐 Ввести код вручную")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+    
+    await update.message.reply_text(
+        "🔐 *Авторизация*\n\n"
+        "Для доступа к функциям бота необходимо авторизоваться.\n\n"
+        "Вы можете:\n"
+        "• 📱 *Отправить номер телефона* - автоматическая авторизация\n"
+        "• 🔐 *Ввести код вручную* - если у вас есть персональный код\n\n"
+        "Выберите способ авторизации:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        ["📅 Моё расписание", "💳 Баланс и оплата"],
+        ["👤 Личный кабинет", "🌐 ВКонтакте"],
+        ["🤖 Умный помощник", "🆘 Помощь"]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+    
+    await update.message.reply_text(
+        "🎯 *Главное меню*\n\n"
+        "Выберите нужный раздел:\n\n"
+        "📅 *Моё расписание* - расписание по дням недели\n"
+        "💳 *Баланс и оплата* - финансовая информация\n"  
+        "👤 *Личный кабинет* - ваши данные и статистика\n"
+        "🌐 *ВКонтакте* - наша группа ВКонтакте\n"
+        "🤖 *Умный помощник* - ответит на любой вопрос\n"
+        "🆘 *Помощь* - справка по использованию",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает справку по использованию бота"""
+    help_text = """
+🆘 *Помощь по использованию бота:*
+
+*Основные команды:*
+/start - Главное меню
+/profile - Личный кабинет  
+/schedule - Моё расписание
+/balance - Баланс и оплата
+
+*Основные функции:*
+📅 *Расписание* - ваше расписание занятий
+💳 *Баланс* - информация о платежах и балансе
+👤 *Профиль* - ваши данные и статистика
+🤖 *Помощник* - ответы на вопросы
+
+*Для администраторов:*
+/admin 555 - Панель управления
+/broadcast - Рассылка сообщений
+
+*Если возникли проблемы:*
+1. Проверьте авторизацию (/start)
+2. Обновите меню (/start)
+3. Напишите в поддержку: +7(901)689-34-22
+    """
+    await update.message.reply_text(help_text, parse_mode='Markdown')
+
+# ==================== АВТОРИЗАЦИЯ ====================
+
+async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает отправку номера телефона"""
+    user_id = update.effective_user.id
+    contact = update.message.contact
+    
+    if contact:
+        phone = contact.phone_number
+        # Убираем + если есть
+        if phone.startswith('+'):
+            phone = phone[1:]
+        
+        conn = sqlite3.connect('school_bot.db')
+        cursor = conn.cursor()
+        
+        # Ищем пользователя по номеру телефона
+        cursor.execute('SELECT * FROM users WHERE phone = ?', (phone,))
+        user = cursor.fetchone()
+        
+        if user:
+            # Обновляем user_id и верифицируем
+            cursor.execute(
+                'UPDATE users SET user_id = ?, is_verified = TRUE WHERE phone = ?',
+                (user_id, phone)
+            )
+            conn.commit()
+            
+            await update.message.reply_text(
+                "✅ *Авторизация успешна!*\n\n"
+                f"Добро пожаловать, {user[3]}! Теперь вам доступны все функции бота.",
+                parse_mode='Markdown'
+            )
+            await show_main_menu(update, context)
+        else:
+            await update.message.reply_text(
+                "❌ *Номер телефона не найден.*\n\n"
+                "Обратитесь к администратору для получения доступа.",
+                parse_mode='Markdown'
+            )
+        
+        conn.close()
+    else:
+        await update.message.reply_text("❌ Не удалось получить номер телефона.")
+
+async def handle_personal_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает ввод персонального кода"""
+    user_id = update.effective_user.id
+    personal_code = update.message.text.strip()
+    
+    await verify_personal_code(update, context, personal_code)
+
+async def verify_personal_code(update: Update, context: ContextTypes.DEFAULT_TYPE, personal_code: str):
+    """Проверяет персональный код и авторизует пользователя"""
+    user_id = update.effective_user.id
+    
+    conn = sqlite3.connect('school_bot.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT * FROM users WHERE personal_code = ?', (personal_code,))
+    user = cursor.fetchone()
+    
+    if user:
+        # Обновляем user_id и верифицируем
+        cursor.execute(
+            'UPDATE users SET user_id = ?, is_verified = TRUE WHERE personal_code = ?',
+            (user_id, personal_code)
+        )
+        conn.commit()
+        
+        await update.message.reply_text(
+            "✅ *Авторизация успешна!*\n\n"
+            f"Добро пожаловать, {user[3]}! Теперь вам доступны все функции бота.",
+            parse_mode='Markdown'
+        )
+        await show_main_menu(update, context)
+    else:
+        await update.message.reply_text(
+            "❌ *Неверный персональный код.*\n\n"
+            "Проверьте код и попробуйте снова или обратитесь к администратору.",
+            parse_mode='Markdown'
+        )
+    
+    conn.close()
+
+# ==================== ФУНКЦИОНАЛ ПОЛЬЗОВАТЕЛЯ ====================
+
+async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает баланс пользователя"""
+    if not is_authenticated(update.effective_user.id):
+        await show_auth_menu(update, context)
+        return
+    
+    user_id = update.effective_user.id
+    conn = sqlite3.connect('school_bot.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT balance, student_name FROM users WHERE user_id = ?', (user_id,))
+    user_data = cursor.fetchone()
+    conn.close()
+    
+    if user_data:
+        balance, name = user_data
+        
+        response = f"💳 *Баланс и оплата*\n\n"
+        response += f"👤 *Студент:* {name}\n"
+        response += f"💰 *Текущий баланс:* {balance} руб.\n"
+        response += f"📅 *Стоимость абонемента:* {MONTHLY_SUBSCRIPTION} руб./месяц\n\n"
+        
+        if balance >= MONTHLY_SUBSCRIPTION:
+            response += "✅ *Статус:* Оплата за следующий месяц обеспечена\n"
+        else:
+            needed = MONTHLY_SUBSCRIPTION - balance
+            response += f"⚠️ *Статус:* Необходимо пополнить на {needed} руб.\n"
+        
+        response += "\n💡 *Автоматическое списание:*\n"
+        response += "Абонемент автоматически списывается 1 числа каждого месяца\n"
+        response += "Напоминание приходит 16 числа при нулевом балансе\n\n"
+        response += "📞 *По вопросам оплаты:* +7(901)689-34-22"
+        
+        keyboard = [
+            [InlineKeyboardButton("💳 Пополнить баланс", url="https://example.com/payment")],
+            [InlineKeyboardButton("📞 Связаться с администратором", url="https://t.me/your_admin")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(response, reply_markup=reply_markup, parse_mode='Markdown')
+    else:
+        await update.message.reply_text("❌ Данные не найдены.")
+
+async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает личный кабинет пользователя"""
+    if not is_authenticated(update.effective_user.id):
+        await show_auth_menu(update, context)
+        return
+    
+    user_id = update.effective_user.id
+    conn = sqlite3.connect('school_bot.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT u.student_name, u.phone, u.balance, g.group_name, u.personal_code, u.lessons_attended
+        FROM users u
+        LEFT JOIN groups g ON u.group_id = g.group_id
+        WHERE u.user_id = ?
+    ''', (user_id,))
+    
+    user_data = cursor.fetchone()
+    conn.close()
+    
+    if user_data:
+        name, phone, balance, group_name, personal_code, lessons_attended = user_data
+        
+        # Определяем статус платежа
+        payment_status = "✅ Оплачено" if balance >= MONTHLY_SUBSCRIPTION else "❌ Требуется оплата"
+        
+        response = "👤 *Ваш личный кабинет:*\n\n"
+        response += f"📛 *Имя:* {name or 'Не указано'}\n"
+        response += f"📱 *Телефон:* {phone}\n"
+        response += f"💰 *Баланс:* {balance} руб.\n"
+        response += f"🎯 *Группа:* {group_name or 'Не назначена'}\n"
+        response += f"📊 *Занятий посещено:* {lessons_attended}\n"
+        response += f"💳 *Статус оплаты:* {payment_status}\n"
+        response += f"🔐 *Персональный код:* `{personal_code}`\n\n"
+        
+        if balance < MONTHLY_SUBSCRIPTION:
+            response += f"💡 *Для продолжения занятий необходимо пополнить баланс на {MONTHLY_SUBSCRIPTION - balance} руб.*\n\n"
+        
+        response += "Используйте кнопку '📅 Моё расписание' для просмотра вашего расписания!"
+        
+        keyboard = [
+            [InlineKeyboardButton("💳 Пополнить баланс", url="https://example.com/payment")],
+            [InlineKeyboardButton("📅 Моё расписание", callback_data="my_schedule")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(response, reply_markup=reply_markup, parse_mode='Markdown')
+    else:
+        await update.message.reply_text("❌ *Данные не найдены.*", parse_mode='Markdown')
+
+async def show_vkontakte(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает ссылку на ВКонтакте"""
+    keyboard = [
+        [InlineKeyboardButton("🌐 Перейти в группу ВКонтакте", url="https://vk.com/vdvascheta37")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "🌐 *Наша группа ВКонтакте:*\n\n"
+        "Присоединяйтесь к нашему сообществу!\n\n"
+        "В группе вы найдете:\n"
+        "• 📢 Новости и анонсы\n"
+        "• 📚 Полезные материалы\n"
+        "• 📸 Фото с занятий\n"
+        "• 💬 Общение с преподавателями\n"
+        "• 🎯 Информацию о мероприятиях",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def show_my_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает расписание пользователя по дням недели"""
+    if not is_authenticated(update.effective_user.id):
+        await show_auth_menu(update, context)
+        return
+    
+    user_id = update.effective_user.id
+    conn = sqlite3.connect('school_bot.db')
+    cursor = conn.cursor()
+    
+    # Получаем группу пользователя
+    cursor.execute('SELECT group_id FROM users WHERE user_id = ?', (user_id,))
+    user_group = cursor.fetchone()
+    
+    if not user_group or not user_group[0]:
+        await update.message.reply_text("❌ *У вас не назначена группа.*\n\nОбратитесь к администратору.")
+        conn.close()
+        return
+    
+    group_id = user_group[0]
+    
+    # Получаем расписание группы
+    cursor.execute('''
+        SELECT day_of_week, start_time, end_time, subject 
+        FROM schedule 
+        WHERE group_id = ? 
+        ORDER BY day_of_week, start_time
+    ''', (group_id,))
+    
+    schedule_data = cursor.fetchall()
+    conn.close()
+    
+    days_of_week = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
+    
+    if schedule_data:
+        response = "📅 *Ваше расписание:*\n\n"
+        
+        current_day = None
+        for day_num, start_time, end_time, subject in schedule_data:
+            if day_num != current_day:
+                if current_day is not None:
+                    response += "\n"
+                response += f"*{days_of_week[day_num-1]}:*\n"
+                current_day = day_num
+            
+            response += f"🕒 {start_time} - {end_time}: {subject}\n"
+        
+        response += "\n📍 *Адрес:* Ивановская область, г. Родники, ул. Любимова д.36"
+    else:
+        response = "❌ *Расписание для вашей группы пока не составлено.*\n\nОбратитесь к администратору."
+    
+    await update.message.reply_text(response, parse_mode='Markdown')
+
+# ==================== ОБРАБОТКА СООБЩЕНИЙ ====================
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает текстовые сообщения"""
+    user_id = update.effective_user.id
+    user_message = update.message.text
+    
+    # Проверяем авторизацию
+    if not is_authenticated(user_id):
+        # Если не авторизован, проверяем специальные команды
+        if user_message == "🔐 Ввести код вручную":
+            await update.message.reply_text(
+                "🔢 *Ввод персонального кода*\n\n"
+                "Пожалуйста, введите ваш 6-значный персональный код:",
+                parse_mode='Markdown'
+            )
+            return
+        elif user_message.isdigit() and len(user_message) == 6:
+            await verify_personal_code(update, context, user_message)
+            return
+        else:
+            await show_auth_menu(update, context)
+            return
+    
+    # Обрабатываем команды главного меню для авторизованных пользователей
+    if user_message == "📅 Моё расписание":
+        await show_my_schedule(update, context)
+    elif user_message == "💳 Баланс и оплата":
+        await show_balance(update, context)
+    elif user_message == "👤 Личный кабинет":
+        await show_profile(update, context)
+    elif user_message == "🌐 ВКонтакте":
+        await show_vkontakte(update, context)
+    elif user_message == "🤖 Умный помощник":
+        await update.message.reply_text(
+            "🤖 *Умный помощник*\n\n"
+            "Задайте ваш вопрос о:\n"
+            "• 📅 Расписании занятий\n"
+            "• 💳 Оплате и балансе\n"
+            "• 📚 Учебных программах\n"
+            "• 👨‍🏫 Преподавателях\n"
+            "• 🌐 Контактах и адресе\n\n"
+            "Я постараюсь помочь! ✨",
+            parse_mode='Markdown'
+        )
+    elif user_message == "🆘 Помощь":
+        await help_command(update, context)
+    elif user_message == "🎯 Открыть админ-панель" and is_admin(user_id):
+        await update.message.reply_text(
+            "🔐 *Для доступа к админ-панели используйте команду:*\n"
+            "`/admin 555`",
+            parse_mode='Markdown'
+        )
+    elif user_message == "📱 Пользовательский режим" and is_admin(user_id):
+        await show_main_menu(update, context)
+    else:
+        # Обрабатываем через ИИ
+        response = simple_ai.get_response(user_message)
+        await update.message.reply_text(response, parse_mode='Markdown')
 
 # ==================== АДМИН-ПАНЕЛЬ ====================
 
@@ -268,6 +710,92 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         
     elif callback_data == "admin_users":
         await show_users_list(query)
+        
+    elif callback_data == "admin_back":
+        await show_admin_panel_from_callback(query)
+        
+    elif callback_data == "my_schedule":
+        await show_my_schedule_from_callback(query, context)
+
+async def show_my_schedule_from_callback(query, context):
+    """Показывает расписание при нажатии кнопки"""
+    user_id = query.from_user.id
+    
+    if not is_authenticated(user_id):
+        await query.edit_message_text("❌ Сначала нужно авторизоваться!")
+        return
+    
+    conn = sqlite3.connect('school_bot.db')
+    cursor = conn.cursor()
+    
+    # Получаем группу пользователя
+    cursor.execute('SELECT group_id FROM users WHERE user_id = ?', (user_id,))
+    user_group = cursor.fetchone()
+    
+    if not user_group or not user_group[0]:
+        await query.edit_message_text("❌ У вас не назначена группа.\n\nОбратитесь к администратору.")
+        conn.close()
+        return
+    
+    group_id = user_group[0]
+    
+    # Получаем расписание группы
+    cursor.execute('''
+        SELECT day_of_week, start_time, end_time, subject 
+        FROM schedule 
+        WHERE group_id = ? 
+        ORDER BY day_of_week, start_time
+    ''', (group_id,))
+    
+    schedule_data = cursor.fetchall()
+    conn.close()
+    
+    days_of_week = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
+    
+    if schedule_data:
+        response = "📅 *Ваше расписание:*\n\n"
+        
+        current_day = None
+        for day_num, start_time, end_time, subject in schedule_data:
+            if day_num != current_day:
+                if current_day is not None:
+                    response += "\n"
+                response += f"*{days_of_week[day_num-1]}:*\n"
+                current_day = day_num
+            
+            response += f"🕒 {start_time} - {end_time}: {subject}\n"
+        
+        response += "\n📍 *Адрес:* Ивановская область, г. Родники, ул. Любимова д.36"
+    else:
+        response = "❌ *Расписание для вашей группы пока не составлено.*\n\nОбратитесь к администратору."
+    
+    await query.edit_message_text(response, parse_mode='Markdown')
+
+async def show_admin_panel_from_callback(query):
+    """Показывает админ-панель при нажатии кнопки назад"""
+    stats = get_admin_stats()
+    
+    keyboard = [
+        [InlineKeyboardButton("📢 Рассылка всем", callback_data="admin_broadcast_all")],
+        [InlineKeyboardButton("🎯 Рассылка по группам", callback_data="admin_broadcast_groups")],
+        [InlineKeyboardButton("👤 Выборочная рассылка", callback_data="admin_broadcast_select")],
+        [InlineKeyboardButton("📊 Статистика", callback_data="admin_stats")],
+        [InlineKeyboardButton("👥 Список пользователей", callback_data="admin_users")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message = (
+        "👨‍💼 *ПАНЕЛЬ АДМИНИСТРАТОРА*\n\n"
+        "📊 *Текущая статистика:*\n"
+        f"• 👥 Активных пользователей: {stats['active_users']}\n"
+        f"• 📈 Всего зарегистрировано: {stats['total_users']}\n"
+        f"• 🎯 Учебных групп: {stats['groups_count']}\n"
+        f"• 💰 Общий баланс: {stats['total_balance']} руб.\n"
+        f"• 🔴 С нулевым балансом: {stats['zero_balance_users']}\n\n"
+        "Выберите действие:"
+    )
+    
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def show_selective_broadcast_menu(query):
     """Показывает меню выборочной рассылки"""
@@ -500,195 +1028,91 @@ async def send_payment_reminders(context: ContextTypes.DEFAULT_TYPE):
         
         conn.close()
 
-# ==================== ОСНОВНЫЕ ФУНКЦИИ БОТА ====================
+# ==================== ОБРАБОТКА EXCEL ФАЙЛОВ ====================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    if is_admin(user_id):
-        keyboard = [
-            [KeyboardButton("🎯 Открыть админ-панель")],
-            [KeyboardButton("📱 Пользовательский режим")]
-        ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-        
-        await update.message.reply_text(
-            "👋 *Приветствую, администратор!*\n\n"
-            "Вы можете перейти в админ-панель или использовать бот как обычный пользователь.\n\n"
-            "🔐 *Для админ-панели используйте:*\n"
-            "`/admin 555`",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+async def handle_excel_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает загрузку Excel файлов для обновления данных"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ У вас нет прав для этой операции")
         return
     
-    welcome_text = """
-🎓 *Добро пожаловать в учебный центр "В два счёта"!*
-
-🤖 *Этот бот поможет вам:*
-
-📅 *Узнать расписание*
-• Ваше расписание по дням недели
-• Ближайшие занятия
-• Время и место занятий
-
-💳 *Контролировать финансы*
-• Текущий баланс
-• Автоматическое списание абонемента
-• История платежей
-
-👤 *Личный кабинет*
-• Ваши персональные данные
-• Статистика посещений
-• Контактная информация
-
-🌐 *Соцсети*
-• Наша группа ВКонтакте
-• Новости и анонсы
-
-🤖 *Умный помощник*
-• Ответы на вопросы о занятиях
-• Информация о программах
-• Консультации по обучению
-
-🔐 *Для начала работы необходимо авторизоваться*
-    """
+    document = update.message.document
     
-    if is_authenticated(user_id):
-        await update.message.reply_text(welcome_text, parse_mode='Markdown')
-        await show_main_menu(update, context)
-    else:
-        await update.message.reply_text(welcome_text, parse_mode='Markdown')
-        await show_auth_menu(update, context)
+    if not document.file_name.endswith(('.xlsx', '.xls')):
+        await update.message.reply_text("❌ Пожалуйста, загрузите файл в формате Excel (.xlsx или .xls)")
+        return
+    
+    try:
+        # Скачиваем файл
+        file = await context.bot.get_file(document.file_id)
+        file_bytes = await file.download_as_bytearray()
+        
+        # Читаем Excel
+        df = pd.read_excel(io.BytesIO(file_bytes))
+        
+        # Обрабатываем данные
+        await process_excel_data(update, df)
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка при обработке файла: {str(e)}")
 
-async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        ["📅 Моё расписание", "💳 Баланс и оплата"],
-        ["👤 Личный кабинет", "🌐 ВКонтакте"],
-        ["🤖 Умный помощник", "🆘 Помощь"]
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+async def process_excel_data(update: Update, df):
+    """Обрабатывает данные из Excel файла"""
+    conn = sqlite3.connect('school_bot.db')
+    cursor = conn.cursor()
+    
+    updated_count = 0
+    added_count = 0
+    
+    for index, row in df.iterrows():
+        try:
+            # Предполагаем структуру Excel: phone, student_name, group_id, balance
+            phone = str(row.get('phone', '')).strip()
+            student_name = str(row.get('student_name', '')).strip()
+            group_id = int(row.get('group_id', 0))
+            balance = float(row.get('balance', 0))
+            
+            if not phone:
+                continue
+            
+            # Проверяем существует ли пользователь
+            cursor.execute('SELECT * FROM users WHERE phone = ?', (phone,))
+            existing_user = cursor.fetchone()
+            
+            if existing_user:
+                # Обновляем существующего пользователя
+                cursor.execute('''
+                    UPDATE users 
+                    SET student_name = ?, group_id = ?, balance = ?
+                    WHERE phone = ?
+                ''', (student_name, group_id, balance, phone))
+                updated_count += 1
+            else:
+                # Добавляем нового пользователя
+                personal_code = generate_personal_code()
+                cursor.execute('''
+                    INSERT INTO users (phone, personal_code, student_name, group_id, balance, is_verified)
+                    VALUES (?, ?, ?, ?, ?, FALSE)
+                ''', (phone, personal_code, student_name, group_id, balance))
+                added_count += 1
+                
+        except Exception as e:
+            print(f"Ошибка при обработке строки {index}: {e}")
+            continue
+    
+    conn.commit()
+    conn.close()
     
     await update.message.reply_text(
-        "🎯 *Главное меню*\n\n"
-        "Выберите нужный раздел:\n\n"
-        "📅 *Моё расписание* - расписание по дням недели\n"
-        "💳 *Баланс и оплата* - финансовая информация\n"  
-        "👤 *Личный кабинет* - ваши данные и статистика\n"
-        "🌐 *ВКонтакте* - наша группа ВКонтакте\n"
-        "🤖 *Умный помощник* - ответит на любой вопрос\n"
-        "🆘 *Помощь* - справка по использованию",
-        reply_markup=reply_markup,
+        f"📊 *Данные обновлены:*\n\n"
+        f"✅ Добавлено: {added_count} пользователей\n"
+        f"✏️ Обновлено: {updated_count} пользователей\n\n"
+        f"Файл успешно обработан!",
         parse_mode='Markdown'
     )
 
-# Остальные функции (handle_contact, handle_personal_code_input, verify_personal_code, 
-# show_balance, show_vkontakte, handle_message) остаются без изменений
+# ==================== ГЛАВНАЯ ФУНКЦИЯ ====================
 
-async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_authenticated(update.effective_user.id):
-        await show_auth_menu(update, context)
-        return
-    
-    user_id = update.effective_user.id
-    conn = sqlite3.connect('school_bot.db')
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT u.student_name, u.phone, u.balance, g.group_name, u.personal_code, u.lessons_attended
-        FROM users u
-        LEFT JOIN groups g ON u.group_id = g.group_id
-        WHERE u.user_id = ?
-    ''', (user_id,))
-    
-    user_data = cursor.fetchone()
-    conn.close()
-    
-    if user_data:
-        name, phone, balance, group_name, personal_code, lessons_attended = user_data
-        
-        # Определяем статус платежа
-        today = datetime.now()
-        payment_status = "✅ Оплачено" if balance >= MONTHLY_SUBSCRIPTION else "❌ Требуется оплата"
-        
-        response = "👤 *Ваш личный кабинет:*\n\n"
-        response += f"📛 *Имя:* {name or 'Не указано'}\n"
-        response += f"📱 *Телефон:* {phone}\n"
-        response += f"💰 *Баланс:* {balance} руб.\n"
-        response += f"🎯 *Группа:* {group_name or 'Не назначена'}\n"
-        response += f"📊 *Занятий посещено:* {lessons_attended}\n"
-        response += f"💳 *Статус оплаты:* {payment_status}\n"
-        response += f"🔐 *Персональный код:* `{personal_code}`\n\n"
-        
-        if balance < MONTHLY_SUBSCRIPTION:
-            response += f"💡 *Для продолжения занятий необходимо пополнить баланс на {MONTHLY_SUBSCRIPTION - balance} руб.*\n\n"
-        
-        response += "Используйте кнопку '📅 Моё расписание' для просмотра вашего расписания!"
-        
-        keyboard = [
-            [InlineKeyboardButton("💳 Пополнить баланс", url="https://example.com/payment")],
-            [InlineKeyboardButton("📅 Моё расписание", callback_data="my_schedule")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_text(response, reply_markup=reply_markup, parse_mode='Markdown')
-    else:
-        await update.message.reply_text("❌ *Данные не найдены.*", parse_mode='Markdown')
-
-async def show_my_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает расписание пользователя по дням недели"""
-    if not is_authenticated(update.effective_user.id):
-        await show_auth_menu(update, context)
-        return
-    
-    user_id = update.effective_user.id
-    conn = sqlite3.connect('school_bot.db')
-    cursor = conn.cursor()
-    
-    # Получаем группу пользователя
-    cursor.execute('SELECT group_id FROM users WHERE user_id = ?', (user_id,))
-    user_group = cursor.fetchone()
-    
-    if not user_group or not user_group[0]:
-        await update.message.reply_text("❌ *У вас не назначена группа.*\n\nОбратитесь к администратору.")
-        conn.close()
-        return
-    
-    group_id = user_group[0]
-    
-    # Получаем расписание группы
-    cursor.execute('''
-        SELECT day_of_week, start_time, end_time, subject 
-        FROM schedule 
-        WHERE group_id = ? 
-        ORDER BY day_of_week, start_time
-    ''', (group_id,))
-    
-    schedule_data = cursor.fetchall()
-    conn.close()
-    
-    days_of_week = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
-    
-    if schedule_data:
-        response = "📅 *Ваше расписание:*\n\n"
-        
-        current_day = None
-        for day_num, start_time, end_time, subject in schedule_data:
-            if day_num != current_day:
-                if current_day is not None:
-                    response += "\n"
-                response += f"*{days_of_week[day_num-1]}:*\n"
-                current_day = day_num
-            
-            response += f"🕒 {start_time} - {end_time}: {subject}\n"
-        
-        response += "\n📍 *Адрес:* Ивановская область, г. Родники, ул. Любимова д.36"
-    else:
-        response = "❌ *Расписание для вашей группы пока не составлено.*\n\nОбратитесь к администратору."
-    
-    await update.message.reply_text(response, parse_mode='Markdown')
-
-# Основная функция с добавлением планировщика
 def main():
     print("🚀 ЗАПУСК БОТА...")
     
@@ -733,14 +1157,20 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("admin", show_admin_panel))
     application.add_handler(CommandHandler("broadcast", admin_broadcast))
+    application.add_handler(CommandHandler("profile", show_profile))
+    application.add_handler(CommandHandler("balance", show_balance))
+    application.add_handler(CommandHandler("schedule", show_my_schedule))
+    
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_excel_file))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Добавляем обработчики для кнопок
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^admin_"))
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^broadcast_"))
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^select_"))
-    
-    # Добавляем обработчик для расписания
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^my_schedule"))
+    application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^send_to_selected"))
     
     # Добавляем планировщик для автоматических процессов
     job_queue = application.job_queue
