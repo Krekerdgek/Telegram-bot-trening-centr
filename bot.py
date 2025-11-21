@@ -26,7 +26,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "8365124344:AAHlMzG3xIGLEEOt_G3OH4W3MFrB
 # ID администраторов 
 ADMIN_IDS = [844196448]  # Ваш Telegram ID
 
-# Стоимость абонемента (руб.)
+# Базовая стоимость абонемента (по умолчанию)
 MONTHLY_SUBSCRIPTION = 2000
 
 # ==================== УПРОЩЕННЫЙ ИИ ====================
@@ -42,7 +42,7 @@ class SimpleAI:
         
         # Оплата и баланс
         elif any(word in user_lower for word in ['оплат', 'баланс', 'деньг', 'стоимос', 'цена', 'плат', 'денег', 'рубл', 'стоит']):
-            return f"💳 *Оплата и баланс:*\n\nСтоимость абонемента: {MONTHLY_SUBSCRIPTION} руб./месяц\nИндивидуальные занятия: от 500 руб./урок\n\nТочную информацию о вашем балансе и вариантах оплаты можно найти в разделе '💳 Баланс и оплата' 💰"
+            return f"💳 *Оплата и баланс:*\n\nСтоимость абонемента: от {MONTHLY_SUBSCRIPTION} руб./месяц\n\nТочную информацию о вашем балансе и индивидуальной стоимости можно найти в разделе '💳 Баланс и оплата' 💰"
         
         # Программы обучения
         elif any(word in user_lower for word in ['программ', 'предмет', 'математ', 'русск', 'лог', 'развити', 'обучен', 'курс', 'урок']):
@@ -85,6 +85,7 @@ def init_db():
             student_name TEXT,
             group_id INTEGER,
             balance REAL DEFAULT 0,
+            monthly_price REAL DEFAULT 2000,
             is_verified BOOLEAN DEFAULT FALSE,
             lessons_attended INTEGER DEFAULT 0,
             last_payment_date TEXT
@@ -123,6 +124,17 @@ def init_db():
             start_time TEXT,
             end_time TEXT,
             subject TEXT
+        )
+    ''')
+    
+    # Таблица платежей (новая)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS payments (
+            payment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            amount REAL,
+            payment_date TEXT,
+            description TEXT
         )
     ''')
     
@@ -176,7 +188,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 💳 *Контролировать финансы*
 • Текущий баланс
-• Автоматическое списание абонемента
+• Индивидуальная стоимость занятий
+• Автоматическое списание
 • История платежей
 
 👤 *Личный кабинет*
@@ -213,7 +226,7 @@ async def show_auth_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(
         "🔐 *Авторизация*\n\n"
-        "Для доска к функциям бота необходимо авторизоваться.\n\n"
+        "Для доступа к функциям бота необходимо авторизоваться.\n\n"
         "Вы можете:\n"
         "• 📱 *Отправить номер телефона* - автоматическая авторизация\n"
         "• 🔐 *Ввести код вручную* - если у вас есть персональный код\n\n"
@@ -359,7 +372,7 @@ async def verify_personal_code(update: Update, context: ContextTypes.DEFAULT_TYP
 # ==================== ФУНКЦИОНАЛ ПОЛЬЗОВАТЕЛЯ ====================
 
 async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает баланс пользователя"""
+    """Показывает баланс пользователя с индивидуальной ценой"""
     if not is_authenticated(update.effective_user.id):
         await show_auth_menu(update, context)
         return
@@ -368,27 +381,37 @@ async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect('school_bot.db')
     cursor = conn.cursor()
     
-    cursor.execute('SELECT balance, student_name FROM users WHERE user_id = ?', (user_id,))
+    cursor.execute('SELECT balance, student_name, monthly_price FROM users WHERE user_id = ?', (user_id,))
     user_data = cursor.fetchone()
     conn.close()
     
     if user_data:
-        balance, name = user_data
+        balance, name, monthly_price = user_data
+        
+        # Рассчитываем оставшиеся месяцы
+        remaining_months = int(balance / monthly_price) if monthly_price > 0 else 0
+        remaining_days = int((balance % monthly_price) / monthly_price * 30) if monthly_price > 0 else 0
         
         response = f"💳 *Баланс и оплата*\n\n"
         response += f"👤 *Студент:* {name}\n"
         response += f"💰 *Текущий баланс:* {balance} руб.\n"
-        response += f"📅 *Стоимость абонемента:* {MONTHLY_SUBSCRIPTION} руб./месяц\n\n"
+        response += f"📅 *Стоимость месяца:* {monthly_price} руб.\n"
+        response += f"⏱️ *Оплачено месяцев:* {remaining_months}\n"
         
-        if balance >= MONTHLY_SUBSCRIPTION:
-            response += "✅ *Статус:* Оплата за следующий месяц обеспечена\n"
+        if remaining_days > 0:
+            response += f"📆 *+ {remaining_days} дней*\n\n"
         else:
-            needed = MONTHLY_SUBSCRIPTION - balance
+            response += "\n"
+        
+        if balance >= monthly_price:
+            response += "✅ *Статус:* Следующий месяц оплачен\n"
+        else:
+            needed = monthly_price - balance
             response += f"⚠️ *Статус:* Необходимо пополнить на {needed} руб.\n"
         
         response += "\n💡 *Автоматическое списание:*\n"
-        response += "Абонемент автоматически списывается 1 числа каждого месяца\n"
-        response += "Напоминание приходит 16 числа при нулевом балансе\n\n"
+        response += f"Каждый месяц 1 числа списывается {monthly_price} руб.\n"
+        response += "Напоминание приходит 16 числа при недостатке средств\n\n"
         response += "📞 *По вопросам оплаты:* +7(901)689-34-22"
         
         keyboard = [
@@ -412,7 +435,7 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor = conn.cursor()
     
     cursor.execute('''
-        SELECT u.student_name, u.phone, u.balance, g.group_name, u.personal_code, u.lessons_attended
+        SELECT u.student_name, u.phone, u.balance, u.monthly_price, g.group_name, u.personal_code, u.lessons_attended
         FROM users u
         LEFT JOIN groups g ON u.group_id = g.group_id
         WHERE u.user_id = ?
@@ -422,22 +445,27 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
     
     if user_data:
-        name, phone, balance, group_name, personal_code, lessons_attended = user_data
+        name, phone, balance, monthly_price, group_name, personal_code, lessons_attended = user_data
+        
+        # Рассчитываем оставшиеся месяцы
+        remaining_months = int(balance / monthly_price) if monthly_price > 0 else 0
         
         # Определяем статус платежа
-        payment_status = "✅ Оплачено" if balance >= MONTHLY_SUBSCRIPTION else "❌ Требуется оплата"
+        payment_status = "✅ Оплачено" if balance >= monthly_price else "❌ Требуется оплата"
         
         response = "👤 *Ваш личный кабинет:*\n\n"
         response += f"📛 *Имя:* {name or 'Не указано'}\n"
         response += f"📱 *Телефон:* {phone}\n"
         response += f"💰 *Баланс:* {balance} руб.\n"
+        response += f"💵 *Стоимость месяца:* {monthly_price} руб.\n"
+        response += f"⏱️ *Оплачено месяцев:* {remaining_months}\n"
         response += f"🎯 *Группа:* {group_name or 'Не назначена'}\n"
         response += f"📊 *Занятий посещено:* {lessons_attended}\n"
         response += f"💳 *Статус оплаты:* {payment_status}\n"
         response += f"🔐 *Персональный код:* `{personal_code}`\n\n"
         
-        if balance < MONTHLY_SUBSCRIPTION:
-            response += f"💡 *Для продолжения занятий необходимо пополнить баланс на {MONTHLY_SUBSCRIPTION - balance} руб.*\n\n"
+        if balance < monthly_price:
+            response += f"💡 *Для продолжения занятий необходимо пополнить баланс на {monthly_price - balance} руб.*\n\n"
         
         response += "Используйте кнопку '📅 Моё расписание' для просмотра вашего расписания!"
         
@@ -688,7 +716,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
             f"💰 *Финансы:*\n"
             f"• Общий баланс: {stats['total_balance']} руб.\n"
             f"• Средний баланс: {stats['total_balance']/max(stats['active_users'], 1):.0f} руб.\n"
-            f"• Стоимость абонемента: {MONTHLY_SUBSCRIPTION} руб."
+            f"• Базовая стоимость абонемента: {MONTHLY_SUBSCRIPTION} руб."
         )
         await query.edit_message_text(message, parse_mode='Markdown')
         
@@ -870,7 +898,7 @@ async def show_users_list(query):
     cursor = conn.cursor()
     
     cursor.execute('''
-        SELECT u.user_id, u.student_name, u.phone, g.group_name, u.balance, u.lessons_attended
+        SELECT u.user_id, u.student_name, u.phone, g.group_name, u.balance, u.monthly_price, u.lessons_attended
         FROM users u 
         LEFT JOIN groups g ON u.group_id = g.group_id 
         WHERE u.is_verified = TRUE 
@@ -886,10 +914,14 @@ async def show_users_list(query):
     
     message = "👥 *Последние 20 пользователей:*\n\n"
     for user in users:
-        user_id, name, phone, group, balance, attended = user
+        user_id, name, phone, group, balance, monthly_price, attended = user
+        remaining_months = int(balance / monthly_price) if monthly_price > 0 else 0
+        
         message += f"• **{name or 'Не указано'}** ({phone})\n"
         message += f"  Группа: {group or 'Не назначена'}\n"
         message += f"  Баланс: {balance} руб.\n"
+        message += f"  Стоимость: {monthly_price} руб./мес\n"
+        message += f"  Оплачено месяцев: {remaining_months}\n"
         message += f"  Занятий посещено: {attended}\n\n"
     
     # Кнопка назад
@@ -992,7 +1024,7 @@ async def handle_excel_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Ошибка при обработке файла: {str(e)}")
 
 async def process_excel_data(update: Update, df):
-    """Обрабатывает данные из Excel файла"""
+    """Обрабатывает данные из Excel файла с индивидуальными ценами"""
     conn = sqlite3.connect('school_bot.db')
     cursor = conn.cursor()
     
@@ -1001,11 +1033,12 @@ async def process_excel_data(update: Update, df):
     
     for index, row in df.iterrows():
         try:
-            # Предполагаем структуру Excel: phone, student_name, group_id, balance
+            # Получаем данные из Excel
             phone = str(row.get('phone', '')).strip()
             student_name = str(row.get('student_name', '')).strip()
             group_id = int(row.get('group_id', 0))
             balance = float(row.get('balance', 0))
+            monthly_price = float(row.get('monthly_price', MONTHLY_SUBSCRIPTION))  # Индивидуальная цена
             
             if not phone:
                 continue
@@ -1018,17 +1051,17 @@ async def process_excel_data(update: Update, df):
                 # Обновляем существующего пользователя
                 cursor.execute('''
                     UPDATE users 
-                    SET student_name = ?, group_id = ?, balance = ?
+                    SET student_name = ?, group_id = ?, balance = ?, monthly_price = ?
                     WHERE phone = ?
-                ''', (student_name, group_id, balance, phone))
+                ''', (student_name, group_id, balance, monthly_price, phone))
                 updated_count += 1
             else:
                 # Добавляем нового пользователя
                 personal_code = generate_personal_code()
                 cursor.execute('''
-                    INSERT INTO users (phone, personal_code, student_name, group_id, balance, is_verified)
-                    VALUES (?, ?, ?, ?, ?, FALSE)
-                ''', (phone, personal_code, student_name, group_id, balance))
+                    INSERT INTO users (phone, personal_code, student_name, group_id, balance, monthly_price, is_verified)
+                    VALUES (?, ?, ?, ?, ?, ?, FALSE)
+                ''', (phone, personal_code, student_name, group_id, balance, monthly_price))
                 added_count += 1
                 
         except Exception as e:
@@ -1042,9 +1075,114 @@ async def process_excel_data(update: Update, df):
         f"📊 *Данные обновлены:*\n\n"
         f"✅ Добавлено: {added_count} пользователей\n"
         f"✏️ Обновлено: {updated_count} пользователей\n\n"
-        f"Файл успешно обработан!",
+        f"💡 *Индивидуальные цены установлены*",
         parse_mode='Markdown'
     )
+
+# ==================== АВТОМАТИЧЕСКИЕ ПРОЦЕССЫ ====================
+
+async def process_monthly_deductions(context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает ежемесячные списания по индивидуальным ценам"""
+    today = datetime.now()
+    
+    # Проверяем что сегодня 1 число
+    if today.day == 1:
+        conn = sqlite3.connect('school_bot.db')
+        cursor = conn.cursor()
+        
+        # Получаем пользователей с положительным балансом
+        cursor.execute('''
+            SELECT user_id, student_name, balance, monthly_price 
+            FROM users 
+            WHERE balance > 0 AND is_verified = TRUE
+        ''')
+        
+        users = cursor.fetchall()
+        
+        for user_id, name, balance, monthly_price in users:
+            # Проверяем, хватает ли средств для списания
+            if balance >= monthly_price:
+                new_balance = balance - monthly_price
+                cursor.execute(
+                    "UPDATE users SET balance = ? WHERE user_id = ?", 
+                    (new_balance, user_id)
+                )
+                
+                # Записываем платеж
+                cursor.execute('''
+                    INSERT INTO payments (user_id, amount, payment_date, description)
+                    VALUES (?, ?, datetime('now'), ?)
+                ''', (user_id, -monthly_price, "Ежемесячное списание абонемента"))
+                
+                # Отправляем уведомление
+                try:
+                    remaining_months = int(new_balance / monthly_price)
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=f"💳 *Списание абонемента:*\n\n"
+                             f"Списано {monthly_price} руб. за месячный абонемент.\n"
+                             f"Новый баланс: {new_balance} руб.\n"
+                             f"Осталось месяцев: {remaining_months}\n\n"
+                             f"Спасибо, что занимаетесь у нас! 🎓",
+                        parse_mode='Markdown'
+                    )
+                except Exception as e:
+                    print(f"❌ Не удалось отправить уведомление пользователю {user_id}: {e}")
+            else:
+                # Если средств не хватает, отправляем предупреждение
+                try:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=f"⚠️ *Внимание! Недостаточно средств*\n\n"
+                             f"Для списания абонемента ({monthly_price} руб.)\n"
+                             f"не хватает {monthly_price - balance} руб.\n"
+                             f"Текущий баланс: {balance} руб.\n\n"
+                             f"Пожалуйста, пополните баланс.",
+                        parse_mode='Markdown'
+                    )
+                except Exception as e:
+                    print(f"❌ Не удалось отправить предупреждение пользователю {user_id}: {e}")
+        
+        conn.commit()
+        conn.close()
+
+async def send_payment_reminders(context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет напоминания об оплате 16 числа каждого месяца"""
+    today = datetime.now()
+    
+    # Проверяем что сегодня 16 число
+    if today.day == 16:
+        conn = sqlite3.connect('school_bot.db')
+        cursor = conn.cursor()
+        
+        # Получаем пользователей с недостаточным балансом
+        cursor.execute('''
+            SELECT user_id, student_name, balance, monthly_price 
+            FROM users 
+            WHERE balance < monthly_price AND is_verified = TRUE
+        ''')
+        
+        users = cursor.fetchall()
+        
+        for user_id, name, balance, monthly_price in users:
+            try:
+                needed = monthly_price - balance
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"🔔 *Напоминание об оплате:*\n\n"
+                         f"Уважаемый {name or 'клиент'}!\n"
+                         f"Напоминаем о необходимости внести оплату за обучение.\n"
+                         f"Стоимость абонемента: {monthly_price} руб./месяц\n"
+                         f"Текущий баланс: {balance} руб.\n"
+                         f"Необходимо доплатить: {needed} руб.\n\n"
+                         f"Оплатить можно в разделе '💳 Баланс и оплата'\n"
+                         f"Спасибо! 💫",
+                    parse_mode='Markdown'
+                )
+            except Exception as e:
+                print(f"❌ Не удалось отправить напоминание пользователю {user_id}: {e}")
+        
+        conn.close()
 
 # ==================== ГЛАВНАЯ ФУНКЦИЯ ====================
 
@@ -1106,8 +1244,6 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^select_"))
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^my_schedule"))
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^send_to_selected"))
-    
-    # УБРАНЫ JobQueue обработчики чтобы избежать ошибок
     
     # Запускаем бота
     print("🤖 Бот запущен! Ожидаем сообщения...")
