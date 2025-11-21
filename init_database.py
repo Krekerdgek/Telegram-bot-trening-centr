@@ -8,7 +8,7 @@ def init_database():
     conn = sqlite3.connect('school_bot.db')
     cursor = conn.cursor()
     
-    # Таблица пользователей
+    # Таблица пользователей (ОБНОВЛЕНА - добавлено monthly_price)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -17,6 +17,7 @@ def init_database():
             student_name TEXT,
             group_id INTEGER,
             balance REAL DEFAULT 0,
+            monthly_price REAL DEFAULT 2000,
             is_verified BOOLEAN DEFAULT FALSE,
             lessons_attended INTEGER DEFAULT 0,
             last_payment_date TEXT
@@ -58,11 +59,23 @@ def init_database():
         )
     ''')
     
+    # НОВАЯ таблица платежей
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS payments (
+            payment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            amount REAL,
+            payment_date TEXT,
+            description TEXT
+        )
+    ''')
+    
     # Очищаем старые данные
     cursor.execute("DELETE FROM users")
     cursor.execute("DELETE FROM groups") 
     cursor.execute("DELETE FROM lessons")
     cursor.execute("DELETE FROM schedule")
+    cursor.execute("DELETE FROM payments")  # НОВОЕ - очищаем платежи
     
     print("✅ Таблицы созданы/очищены")
     
@@ -115,27 +128,45 @@ def init_database():
     
     print("✅ Расписание добавлено")
     
-    # Добавляем тестовых пользователей БЕЗ user_id (он установится при авторизации)
+    # Добавляем тестовых пользователей с ИНДИВИДУАЛЬНЫМИ ЦЕНАМИ
     test_users = [
-        (None, "79123456789", "123456", "Иван Петров", 1, 1500.0, False, 0, None),
-        (None, "79111111111", "111111", "Мария Сидорова", 2, 2000.0, False, 0, None),
-        (None, "79222222222", "222222", "Алексей Иванов", 3, 1800.0, False, 0, None),
-        (None, "79333333333", "333333", "Екатерина Смирнова", 1, 1200.0, False, 0, None),
-        (None, "79444444444", "444444", "Дмитрий Козлов", 2, 2500.0, False, 0, None)
+        # phone, personal_code, student_name, group_id, balance, monthly_price, is_verified, lessons_attended, last_payment_date
+        (None, "79123456789", "123456", "Иван Петров", 1, 3000.0, 1000.0, False, 0, None),
+        (None, "79111111111", "111111", "Мария Сидорова", 2, 5000.0, 1500.0, False, 0, None),
+        (None, "79222222222", "222222", "Алексей Иванов", 3, 2000.0, 1200.0, False, 0, None),
+        (None, "79333333333", "333333", "Екатерина Смирнова", 1, 4500.0, 1500.0, False, 0, None),
+        (None, "79444444444", "444444", "Дмитрий Козлов", 2, 6000.0, 2000.0, False, 0, None)
     ]
     
     for user in test_users:
         cursor.execute('''
             INSERT OR REPLACE INTO users 
-            (user_id, phone, personal_code, student_name, group_id, balance, is_verified, lessons_attended, last_payment_date) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (user_id, phone, personal_code, student_name, group_id, balance, monthly_price, is_verified, lessons_attended, last_payment_date) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', user)
-        print(f"✅ Добавлен: {user[3]} (код: {user[2]})")
+        print(f"✅ Добавлен: {user[3]} (код: {user[2]}, цена: {user[6]} руб./мес)")
+    
+    # Добавляем тестовые платежи
+    test_payments = [
+        (1, 3000.0, "2024-01-01 10:00:00", "Начальный баланс"),
+        (2, 5000.0, "2024-01-01 10:00:00", "Начальный баланс"),
+        (3, 2000.0, "2024-01-01 10:00:00", "Начальный баланс"),
+        (4, 4500.0, "2024-01-01 10:00:00", "Начальный баланс"),
+        (5, 6000.0, "2024-01-01 10:00:00", "Начальный баланс"),
+    ]
+    
+    for payment in test_payments:
+        cursor.execute('''
+            INSERT OR IGNORE INTO payments (user_id, amount, payment_date, description)
+            VALUES (?, ?, ?, ?)
+        ''', payment)
+    
+    print("✅ Тестовые платежи добавлены")
     
     conn.commit()
     
     # Проверяем что добавилось
-    cursor.execute("SELECT personal_code, student_name FROM users")
+    cursor.execute("SELECT personal_code, student_name, monthly_price FROM users")
     users_data = cursor.fetchall()
     
     cursor.execute("SELECT group_name FROM groups")
@@ -147,6 +178,9 @@ def init_database():
     cursor.execute("SELECT COUNT(*) FROM schedule")
     schedule_count = cursor.fetchone()[0]
     
+    cursor.execute("SELECT COUNT(*) FROM payments")
+    payments_count = cursor.fetchone()[0]
+    
     conn.close()
     
     print("\n📊 *База данных успешно инициализирована!*")
@@ -154,14 +188,20 @@ def init_database():
     print(f"🎯 Групп: {len(groups_data)}") 
     print(f"📅 Занятий: {lessons_count}")
     print(f"📋 Расписаний: {schedule_count}")
+    print(f"💳 Платежей: {payments_count}")
     
     print("\n🔐 *Тестовые коды для авторизации:*")
-    for code, name in users_data:
-        print(f"   {code} - {name}")
+    for code, name, price in users_data:
+        print(f"   {code} - {name} ({price} руб./мес)")
     
     print("\n🎯 *Учебные группы:*")
     for group in groups_data:
         print(f"   {group[0]}")
+    
+    print("\n💡 *Примеры расчета месяцев:*")
+    print("   • Иван Петров: 3000 руб. / 1000 руб.мес = 3 месяца")
+    print("   • Мария Сидорова: 5000 руб. / 1500 руб.мес = 3 месяца + 500 руб.")
+    print("   • Алексей Иванов: 2000 руб. / 1200 руб.мес = 1 месяц + 800 руб.")
     
     print("\n🚀 *Бот готов к работе!*")
 
@@ -176,7 +216,8 @@ def check_database():
         # Проверяем таблицы
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = cursor.fetchall()
-        print(f"📋 Таблицы в базе: {[table[0] for table in tables]}")
+        table_names = [table[0] for table in tables]
+        print(f"📋 Таблицы в базе: {table_names}")
         
         # Проверяем пользователей
         cursor.execute("SELECT COUNT(*) FROM users")
@@ -198,13 +239,27 @@ def check_database():
         schedule_count = cursor.fetchone()[0]
         print(f"📋 Расписаний: {schedule_count}")
         
-        # Показываем тестовые коды
+        # Проверяем платежи (НОВОЕ)
+        if 'payments' in table_names:
+            cursor.execute("SELECT COUNT(*) FROM payments")
+            payments_count = cursor.fetchone()[0]
+            print(f"💳 Платежей: {payments_count}")
+        
+        # Проверяем наличие поля monthly_price (НОВОЕ)
+        cursor.execute("PRAGMA table_info(users)")
+        users_columns = [column[1] for column in cursor.fetchall()]
+        if 'monthly_price' in users_columns:
+            print("✅ Поле monthly_price присутствует в таблице users")
+        else:
+            print("❌ Поле monthly_price отсутствует в таблице users")
+        
+        # Показываем тестовые коды и цены
         if users_count > 0:
-            cursor.execute("SELECT personal_code, student_name FROM users LIMIT 5")
+            cursor.execute("SELECT personal_code, student_name, monthly_price FROM users LIMIT 5")
             test_users = cursor.fetchall()
-            print("\n🔐 Тестовые коды:")
-            for code, name in test_users:
-                print(f"   {code} - {name}")
+            print("\n🔐 Тестовые коды и цены:")
+            for code, name, price in test_users:
+                print(f"   {code} - {name} ({price} руб./мес)")
         
         conn.close()
         
