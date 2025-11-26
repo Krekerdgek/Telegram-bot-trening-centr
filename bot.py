@@ -20,8 +20,12 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Токен бота из переменных окружения Railway
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8365124344:AAHlMzG3xIGLEEOt_G3OH4W3MFrBHawNuSY")
+# Токен бота из переменных окружения Railway (БЕЗ ДЕФОЛТНОГО ЗНАЧЕНИЯ!)
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+if not BOT_TOKEN:
+    print("❌ ОШИБКА: BOT_TOKEN не установлен в переменных окружения")
+    print("💡 Установите переменную BOT_TOKEN в настройках Railway")
+    exit(1)
 
 # ID администраторов 
 ADMIN_IDS = [844196448]  # Ваш Telegram ID
@@ -127,7 +131,7 @@ def init_db():
         )
     ''')
     
-    # Таблица платежей (новая)
+    # Таблица платежей
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS payments (
             payment_id INTEGER PRIMARY KEY AUTOINCREMENT,
