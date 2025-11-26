@@ -1,35 +1,133 @@
-# Базы данных
+# ==================== БАЗЫ ДАННЫХ ====================
 *.db
 *.sqlite3
 *.sqlite
 *.db-journal
+*.db-wal
+*.db-shm
 
-# Файлы окружения
+# ==================== ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ====================
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
 
-# Кэш Python
+# ==================== PYTHON ====================
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# IDE и редакторы
+# ==================== PYTHON PACKAGING ====================
+# pipenv
+Pipfile
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+pdm.lock
+
+# ==================== IDE И РЕДАКТОРЫ ====================
+# VS Code
 .vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# PyCharm
 .idea/
+*.iws
+*.iml
+*.ipr
+
+# Other editors
 *.swp
 *.swo
+*~
 
-# Системные файлы
+# ==================== СИСТЕМНЫЕ ФАЙЛЫ ====================
+# macOS
 .DS_Store
-Thumbs.db
+.AppleDouble
+.LSOverride
 
-# Логи
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+.directory
+
+# ==================== ЛОГИ ====================
 *.log
 logs/
+pip-log.txt
+pip-delete-this-directory.txt
 
-# Временные файлы
+# ==================== ВРЕМЕННЫЕ ФАЙЛЫ ====================
 temp/
 tmp/
+*.tmp
+*.temp
+
+# ==================== EXCEL/ДОКУМЕНТЫ ====================
+# Временные Excel файлы
+~$*.xlsx
+~$*.xls
+*.xlsx.tmp
+*.xls.tmp
+
+# ==================== TELEGRAM BOT ====================
+# Резервные копии токенов
+token_backup.txt
+bot_config_backup.*
+
+# ==================== RAILWAY ====================
+.railway/
+railway.json.local
+
+# ==================== ПРОЧЕЕ ====================
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
