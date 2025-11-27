@@ -20,12 +20,31 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Токен бота из переменных окружения Railway
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-if not BOT_TOKEN:
-    print("❌ ОШИБКА: BOT_TOKEN не установлен в переменных окружения")
-    print("💡 Установите переменную BOT_TOKEN в настройках Railway")
-    exit(1)
+# ==================== ДИАГНОСТИКА ПЕРЕМЕННЫХ ====================
+print("🔍 ДИАГНОСТИКА: Проверяем переменные окружения...")
+all_vars = dict(os.environ)
+print(f"📋 Всего переменных: {len(all_vars)}")
+
+# Выводим все переменные для диагностики
+for key, value in sorted(all_vars.items()):
+    if any(word in key.upper() for word in ['BOT', 'TOKEN', 'TELEGRAM']):
+        print(f"   🔎 {key} = {value}")
+    else:
+        print(f"   📝 {key} = [скрыто]")
+
+# Токен бота - УНИВЕРСАЛЬНОЕ РЕШЕНИЕ
+BOT_TOKEN = (
+    os.environ.get("BOT_TOKEN") or
+    os.environ.get("TELEGRAM_BOT_TOKEN") or
+    os.environ.get("BOT_TOKEN_KEY") or
+    os.environ.get("TOKEN") or
+    "8365124344:AAHlMzG3xIGLEEOt_G3OH4W3MFrBHawNuSY"  # Fallback
+)
+
+if BOT_TOKEN == "8365124344:AAHlMzG3xIGLEEOt_G3OH4W3MFrBHawNuSY":
+    print("⚠️  Используется fallback токен (переменные окружения не работают)")
+else:
+    print(f"✅ Используется токен из переменных окружения (длина: {len(BOT_TOKEN)})")
 
 # ID администраторов 
 ADMIN_IDS = [844196448]  # Ваш Telegram ID
@@ -1291,3 +1310,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
