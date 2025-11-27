@@ -20,26 +20,12 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Токен бота с диагностикой
-print("🔍 ДИАГНОСТИКА: Проверяем переменные окружения...")
-all_vars = os.environ.keys()
-print(f"📋 Всего переменных: {len(list(all_vars))}")
-
-# Проверим конкретно BOT_TOKEN
+# Токен бота из переменных окружения Railway
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-if BOT_TOKEN:
-    print(f"✅ BOT_TOKEN найден! Длина: {len(BOT_TOKEN)}")
-    print("🚀 Бот запускается с переменной окружения")
-else:
-    print("❌ BOT_TOKEN НЕ найден в переменных окружения")
-    print("📋 Доступные переменные:")
-    for var in sorted(all_vars):
-        if 'BOT' in var or 'TOKEN' in var or 'TELEGRAM' in var:
-            print(f"   - {var}")
-    
-    # Временный fallback
-    BOT_TOKEN = "8365124344:AAHlMzG3xIGLEEOt_G3OH4W3MFrBHawNuSY"
-    print("⚠️  Используется временный токен для запуска")
+if not BOT_TOKEN:
+    print("❌ ОШИБКА: BOT_TOKEN не установлен в переменных окружения")
+    print("💡 Установите переменную BOT_TOKEN в настройках Railway")
+    exit(1)
 
 # ID администраторов 
 ADMIN_IDS = [844196448]  # Ваш Telegram ID
@@ -1209,11 +1195,18 @@ def main():
     
     # ФИКС КОНФЛИКТА - закрываем предыдущие соединения
     try:
-        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/close", timeout=3)
+        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/close", timeout=5)
         print("✅ Закрыли предыдущие соединения с Telegram")
-        time.sleep(2)
+        time.sleep(3)
     except Exception as e:
         print(f"ℹ️ Не удалось закрыть предыдущие соединения: {e}")
+    
+    # Очищаем вебхук если был установлен
+    try:
+        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook", timeout=5)
+        print("✅ Очистили вебхук")
+    except Exception as e:
+        print(f"ℹ️ Не удалось очистить вебхук: {e}")
     
     # Инициализация базы данных
     print("🔍 Проверяем базу данных...")
@@ -1263,20 +1256,38 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^my_schedule"))
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^send_to_selected"))
     
-    # Запускаем бота
+    # Запускаем бота с обработкой конфликтов
     print("🤖 Бот запущен! Ожидаем сообщения...")
-    try:
-        application.run_polling()
-    except Conflict as e:
-        print(f"⚠️ Обнаружен конфликт: {e}")
-        print("🔄 Перезапускаем бота через 10 секунд...")
-        time.sleep(10)
-        main()
-    except Exception as e:
-        print(f"❌ Критическая ошибка: {e}")
+    
+    max_retries = 5
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            application.run_polling(
+                allowed_updates=Update.ALL_TYPES,
+                close_loop=False,
+                drop_pending_updates=True  # Очищает очередь при конфликте
+            )
+            break  # Если успешно выходим из цикла
+        except Conflict as e:
+            retry_count += 1
+            print(f"⚠️ Конфликт ({retry_count}/{max_retries}): {e}")
+            if retry_count < max_retries:
+                print("🔄 Перезапуск через 10 секунд...")
+                time.sleep(10)
+            else:
+                print("❌ Достигнут лимит перезапусков")
+                break
+        except Exception as e:
+            retry_count += 1
+            print(f"❌ Ошибка ({retry_count}/{max_retries}): {e}")
+            if retry_count < max_retries:
+                print("🔄 Перезапуск через 10 секунд...")
+                time.sleep(10)
+            else:
+                print("❌ Достигнут лимит перезапусков")
+                break
 
 if __name__ == '__main__':
     main()
-
-
-
