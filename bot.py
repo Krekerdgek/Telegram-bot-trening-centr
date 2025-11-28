@@ -1,7 +1,9 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
+import os
 import logging
 import sqlite3
-import os
 import time
 import asyncio
 import pandas as pd
@@ -10,41 +12,52 @@ import requests
 from datetime import datetime, timedelta
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
-from telegram.error import Conflict
+from telegram.error import Conflict, TelegramError
 import secrets
 import string
 
-# Настройка логирования
+# ==================== НАСТРОЙКА ЛОГИРОВАНИЯ ====================
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+logger = logging.getLogger(__name__)
 
-# ==================== ДИАГНОСТИКА ПЕРЕМЕННЫХ ====================
-print("🔍 ДИАГНОСТИКА: Проверяем переменные окружения...")
-all_vars = dict(os.environ)
-print(f"📋 Всего переменных: {len(all_vars)}")
+# ==================== ПОЛУЧЕНИЕ ТОКЕНА ====================
+def get_bot_token():
+    """Получаем токен ТОЛЬКО из переменных окружения"""
+    token = os.getenv('BOT_TOKEN')
+    
+    if not token:
+        logger.error("❌ BOT_TOKEN не найден в переменных окружения!")
+        logger.info("📝 Проверьте что в Railway добавлена переменная BOT_TOKEN")
+        raise ValueError("BOT_TOKEN не найден")
+    
+    logger.info("✅ Токен получен из переменных окружения")
+    return token
 
-# Выводим все переменные для диагностики
-for key, value in sorted(all_vars.items()):
-    if any(word in key.upper() for word in ['BOT', 'TOKEN', 'TELEGRAM']):
-        print(f"   🔎 {key} = {value}")
-    else:
-        print(f"   📝 {key} = [скрыто]")
+BOT_TOKEN = get_bot_token()
 
-# Токен бота - УНИВЕРСАЛЬНОЕ РЕШЕНИЕ
-BOT_TOKEN = (
-    os.environ.get("BOT_TOKEN") or
-    os.environ.get("TELEGRAM_BOT_TOKEN") or
-    os.environ.get("BOT_TOKEN_KEY") or
-    os.environ.get("TOKEN") or
-    "8365124344:AAHlMzG3xIGLEEOt_G3OH4W3MFrBHawNuSY"  # Fallback
-)
-
-if BOT_TOKEN == "8365124344:AAHlMzG3xIGLEEOt_G3OH4W3MFrBHawNuSY":
-    print("⚠️  Используется fallback токен (переменные окружения не работают)")
-else:
-    print(f"✅ Используется токен из переменных окружения (длина: {len(BOT_TOKEN)})")
+# ==================== ОБРАБОТЧИК ОШИБОК ====================
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатываем ошибки бота"""
+    error_msg = f"❌ Ошибка: {context.error}"
+    logger.error(error_msg, exc_info=context.error)
+    
+    # Игнорируем конфликты множественных подключений
+    if "Conflict" in str(context.error):
+        logger.warning("⚠️ Обнаружен конфликт подключений - игнорируем")
+        return
+    
+    # Для других ошибок можно добавить уведомление пользователю
+    if update and hasattr(update, 'effective_user'):
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_user.id,
+                text="😔 Произошла ошибка. Попробуйте позже."
+            )
+        except Exception as e:
+            logger.error(f"Не удалось отправить сообщение об ошибке: {e}")
 
 # ID администраторов 
 ADMIN_IDS = [844196448]  # Ваш Telegram ID
@@ -225,7 +238,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Новости и анонсы
 
 🤖 *Умный помощник*
-• Ответы на вопросы о занятиях
+• Ответы на вопросы о занятиям
 • Информация о программах
 • Консультации по обучению
 
@@ -676,7 +689,7 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает панель администратора с проверкой пароля"""
     
     user_id = update.effective_user.id
-    print(f"🔐 АДМИН: Запрос от пользователя {user_id}")
+    logger.info(f"🔐 АДМИН: Запрос от пользователя {user_id}")
     
     # Сначала проверяем ID пользователя
     if not is_admin(user_id):
@@ -688,7 +701,7 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔐 *Требуется авторизация*\n\nНеверный пароль доступа.", parse_mode='Markdown')
         return
     
-    print("✅ АДМИН: Пароль верный, показываем панель")
+    logger.info("✅ АДМИН: Пароль верный, показываем панель")
     
     # Пароль верный - показываем админ-панель
     stats = get_admin_stats()
@@ -983,7 +996,7 @@ async def send_broadcast(context: ContextTypes.DEFAULT_TYPE, message_text: str, 
             sent_count += 1
             await asyncio.sleep(0.1)
         except Exception as e:
-            print(f"❌ Не удалось отправить пользователю {user[0]}: {e}")
+            logger.error(f"❌ Не удалось отправить пользователю {user[0]}: {e}")
             failed_count += 1
     
     return sent_count, failed_count
@@ -1088,7 +1101,7 @@ async def process_excel_data(update: Update, df):
                 added_count += 1
                 
         except Exception as e:
-            print(f"Ошибка при обработке строки {index}: {e}")
+            logger.error(f"Ошибка при обработке строки {index}: {e}")
             continue
     
     conn.commit()
@@ -1102,212 +1115,76 @@ async def process_excel_data(update: Update, df):
         parse_mode='Markdown'
     )
 
-# ==================== АВТОМАТИЧЕСКИЕ ПРОЦЕССЫ ====================
-
-async def process_monthly_deductions(context: ContextTypes.DEFAULT_TYPE):
-    """Обрабатывает ежемесячные списания по индивидуальным ценам"""
-    today = datetime.now()
-    
-    # Проверяем что сегодня 1 число
-    if today.day == 1:
-        conn = sqlite3.connect('school_bot.db')
-        cursor = conn.cursor()
-        
-        # Получаем пользователей с положительным балансом
-        cursor.execute('''
-            SELECT user_id, student_name, balance, monthly_price 
-            FROM users 
-            WHERE balance > 0 AND is_verified = TRUE
-        ''')
-        
-        users = cursor.fetchall()
-        
-        for user_id, name, balance, monthly_price in users:
-            # Проверяем, хватает ли средств для списания
-            if balance >= monthly_price:
-                new_balance = balance - monthly_price
-                cursor.execute(
-                    "UPDATE users SET balance = ? WHERE user_id = ?", 
-                    (new_balance, user_id)
-                )
-                
-                # Записываем платеж
-                cursor.execute('''
-                    INSERT INTO payments (user_id, amount, payment_date, description)
-                    VALUES (?, ?, datetime('now'), ?)
-                ''', (user_id, -monthly_price, "Ежемесячное списание абонемента"))
-                
-                # Отправляем уведомление
-                try:
-                    remaining_months = int(new_balance / monthly_price)
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=f"💳 *Списание абонемента:*\n\n"
-                             f"Списано {monthly_price} руб. за месячный абонемент.\n"
-                             f"Новый баланс: {new_balance} руб.\n"
-                             f"Осталось месяцев: {remaining_months}\n\n"
-                             f"Спасибо, что занимаетесь у нас! 🎓",
-                        parse_mode='Markdown'
-                    )
-                except Exception as e:
-                    print(f"❌ Не удалось отправить уведомление пользователю {user_id}: {e}")
-            else:
-                # Если средств не хватает, отправляем предупреждение
-                try:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=f"⚠️ *Внимание! Недостаточно средств*\n\n"
-                             f"Для списания абонемента ({monthly_price} руб.)\n"
-                             f"не хватает {monthly_price - balance} руб.\n"
-                             f"Текущий баланс: {balance} руб.\n\n"
-                             f"Пожалуйста, пополните баланс.",
-                        parse_mode='Markdown'
-                    )
-                except Exception as e:
-                    print(f"❌ Не удалось отправить предупреждение пользователю {user_id}: {e}")
-        
-        conn.commit()
-        conn.close()
-
-async def send_payment_reminders(context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет напоминания об оплате 16 числа каждого месяца"""
-    today = datetime.now()
-    
-    # Проверяем что сегодня 16 число
-    if today.day == 16:
-        conn = sqlite3.connect('school_bot.db')
-        cursor = conn.cursor()
-        
-        # Получаем пользователей с недостаточным балансом
-        cursor.execute('''
-            SELECT user_id, student_name, balance, monthly_price 
-            FROM users 
-            WHERE balance < monthly_price AND is_verified = TRUE
-        ''')
-        
-        users = cursor.fetchall()
-        
-        for user_id, name, balance, monthly_price in users:
-            try:
-                needed = monthly_price - balance
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"🔔 *Напоминание об оплате:*\n\n"
-                         f"Уважаемый {name or 'клиент'}!\n"
-                         f"Напоминаем о необходимости внести оплату за обучение.\n"
-                         f"Стоимость абонемента: {monthly_price} руб./месяц\n"
-                         f"Текущий баланс: {balance} руб.\n"
-                         f"Необходимо доплатить: {needed} руб.\n\n"
-                         f"Оплатить можно в разделе '💳 Баланс и оплата'\n"
-                         f"Спасибо! 💫",
-                    parse_mode='Markdown'
-                )
-            except Exception as e:
-                print(f"❌ Не удалось отправить напоминание пользователю {user_id}: {e}")
-        
-        conn.close()
-
 # ==================== ГЛАВНАЯ ФУНКЦИЯ ====================
 
 def main():
-    print("🚀 ЗАПУСК БОТА...")
-    
-    # ФИКС КОНФЛИКТА - закрываем предыдущие соединения
+    """Основная функция запуска бота"""
     try:
-        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/close", timeout=5)
-        print("✅ Закрыли предыдущие соединения с Telegram")
-        time.sleep(3)
-    except Exception as e:
-        print(f"ℹ️ Не удалось закрыть предыдущие соединения: {e}")
-    
-    # Очищаем вебхук если был установлен
-    try:
-        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook", timeout=5)
-        print("✅ Очистили вебхук")
-    except Exception as e:
-        print(f"ℹ️ Не удалось очистить вебхук: {e}")
-    
-    # Инициализация базы данных
-    print("🔍 Проверяем базу данных...")
-    conn = sqlite3.connect('school_bot.db')
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute("SELECT COUNT(*) FROM users")
-        user_count = cursor.fetchone()[0]
-        print(f"📊 В базе пользователей: {user_count}")
+        logger.info("🚀 ЗАПУСК БОТА...")
         
-        if user_count == 0:
-            print("🔄 База пустая, запускаем инициализацию...")
-            conn.close()
-            from init_database import init_database
-            init_database()
-        else:
-            print("✅ База данных уже инициализирована")
-            conn.close()
-            
-    except sqlite3.OperationalError:
-        print("🔄 База не существует, создаем...")
-        conn.close()
-        from init_database import init_database
-        init_database()
-    
-    # Создаем приложение БЕЗ JobQueue
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Добавляем обработчики
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("admin", show_admin_panel))
-    application.add_handler(CommandHandler("broadcast", admin_broadcast))
-    application.add_handler(CommandHandler("profile", show_profile))
-    application.add_handler(CommandHandler("balance", show_balance))
-    application.add_handler(CommandHandler("schedule", show_my_schedule))
-    
-    application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
-    application.add_handler(MessageHandler(filters.Document.ALL, handle_excel_file))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    # Добавляем обработчики для кнопок
-    application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^admin_"))
-    application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^broadcast_"))
-    application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^select_"))
-    application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^my_schedule"))
-    application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^send_to_selected"))
-    
-    # Запускаем бота с обработкой конфликтов
-    print("🤖 Бот запущен! Ожидаем сообщения...")
-    
-    max_retries = 5
-    retry_count = 0
-    
-    while retry_count < max_retries:
+        # Инициализация базы данных
+        logger.info("🔍 Проверяем базу данных...")
+        conn = sqlite3.connect('school_bot.db')
+        cursor = conn.cursor()
+        
         try:
-            application.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                close_loop=False,
-                drop_pending_updates=True  # Очищает очередь при конфликте
-            )
-            break  # Если успешно выходим из цикла
-        except Conflict as e:
-            retry_count += 1
-            print(f"⚠️ Конфликт ({retry_count}/{max_retries}): {e}")
-            if retry_count < max_retries:
-                print("🔄 Перезапуск через 10 секунд...")
-                time.sleep(10)
+            cursor.execute("SELECT COUNT(*) FROM users")
+            user_count = cursor.fetchone()[0]
+            logger.info(f"📊 В базе пользователей: {user_count}")
+            
+            if user_count == 0:
+                logger.info("🔄 База пустая, запускаем инициализацию...")
+                conn.close()
+                init_db()
             else:
-                print("❌ Достигнут лимит перезапусков")
-                break
-        except Exception as e:
-            retry_count += 1
-            print(f"❌ Ошибка ({retry_count}/{max_retries}): {e}")
-            if retry_count < max_retries:
-                print("🔄 Перезапуск через 10 секунд...")
-                time.sleep(10)
-            else:
-                print("❌ Достигнут лимит перезапусков")
-                break
+                logger.info("✅ База данных уже инициализирована")
+                conn.close()
+                
+        except sqlite3.OperationalError:
+            logger.info("🔄 База не существует, создаем...")
+            conn.close()
+            init_db()
+        
+        # Создаем приложение с обработчиком ошибок
+        application = Application.builder().token(BOT_TOKEN).build()
+        
+        # Добавляем обработчик ошибок
+        application.add_error_handler(error_handler)
+        
+        # Добавляем обработчики команд
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("admin", show_admin_panel))
+        application.add_handler(CommandHandler("broadcast", admin_broadcast))
+        application.add_handler(CommandHandler("profile", show_profile))
+        application.add_handler(CommandHandler("balance", show_balance))
+        application.add_handler(CommandHandler("schedule", show_my_schedule))
+        
+        application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+        application.add_handler(MessageHandler(filters.Document.ALL, handle_excel_file))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        
+        # Добавляем обработчики для кнопок
+        application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^admin_"))
+        application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^broadcast_"))
+        application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^select_"))
+        application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^my_schedule"))
+        application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^send_to_selected"))
+        
+        # Запускаем бота с обработкой конфликтов
+        logger.info("🤖 Бот запускается...")
+        logger.info("✅ Используются переменные окружения")
+        logger.info("✅ Обработчик ошибок активирован")
+        logger.info("⏳ Ожидаем сообщения...")
+        
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True  # Очищает очередь при конфликте
+        )
+        
+    except Exception as e:
+        logger.critical(f"💥 Критическая ошибка при запуске: {e}")
+        raise
 
 if __name__ == '__main__':
     main()
-
